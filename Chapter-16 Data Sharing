@@ -1,0 +1,108 @@
+
+
+
+
+
+﻿
+-- I have already created couple tables, views, secure views, and UDfs under these 3 schemas 
+	create or replace schema provider_sch1;
+	create or replace schema provider_sch2; 
+	create or replace schema provider_sch3;
+	
+use schema provider_db.provider_sch1;
+
+--two sequence objects
+	create sequence seq01 start 2 increment 2;
+	create sequence seq02 start 1 increment 2;
+	
+-- one permanent table & transitent table
+	create or replace table tbl_1 (
+		id_seq number default seq01.nextval, 
+		field1 varchar()
+	);
+	insert into tbl_1 (field1) values ('a'), ('b'), ('c'), ('d'), ('e'), ('f'), ('g'), ('h'), ('i'), ('j'); 
+	create or replace transient table tbl_2 (
+		id_seq number default seq02.nextval,
+		field1 varchar()
+	);
+	insert into tbl_2 (field1) values ('a1'), ('b1'), ('c1'), ('d1'), ('e1'), ('f1'), ('g1'), ('h1'), ('i1'), ('j1');
+	
+-- one standard, one secure view & one materialized view
+
+	create or replace view std_view_1 (id, field1) as
+	select * from tbl_1
+	union all
+	select * from tbl_2;
+	
+	create or replace secure view secure_view_1 (id, field1) as
+	select * from tbl_1
+	union all
+	select * from tbl_2;
+	
+	create or replace secure materialized view secure_mat_view_1 (id, field1) 
+	as select * from tbl_1;
+	
+-- one standard function, secure function
+
+
+	create function my_std_udf_1 (input FLOAT) 
+	RETURNS FLOAT
+	AS
+	$$
+		input * input
+	$$
+	;
+	
+	
+	create or replace secure function my_secure_udf_2 (input FLOAT)
+	RETURNS FLOAT
+	AS
+	$$
+		input * input * input
+	$$
+	;
+
+-- one external table
+	create stage my_ex_stg
+		url='s3://db_s3_bucket/csv'
+		comment = 'this customer csv data';
+		
+	create or replace file format my_csv_format 
+		type = 'csv'
+		compression= 'auto' 
+		field_delimiter = ','
+		record_delimiter = '\n'
+		skip_header = 0
+		field_optionally_enclosed_by = '\042'
+		null_if = ('\\N');
+		
+	create or replace external TABLE customer_1 ( 
+		CUST_KEY varchar AS (value:c1::varchar), 
+		NAME varchar AS (value:c2::varchar), 
+		ADDRESS varchar AS (value:c3::varchar), 
+		NATION_KEY varchar AS (value:c4::varchar),
+		PHONE varchar AS (value:c5::varchar),
+		ACCOUNT_BALANCE varchar AS (value:c6::varchar), 
+		MARKET_SEGMENT varchar AS (value:c7::varchar), 
+		COMMENT varchar AS (value:c8::varchar)
+	)
+	with location=@my_ex_stg
+	file_format = (format_name = my_csv_format);
+
+﻿
+
+
+1 CREATE SHARE "DEMO02" COMMENT='I am adding 9 tables or views to this shared object';
+2 GRANT USAGE ON DATABASE "PROVIDER_DB" TO SHARE "DEMO82";
+3 GRANT USAGE ON SCHEMA "PROVIDER_DB"."PROVIDER_SCH1" TO SHARE "DEM002"; 
+4 GRANT USAGE ON SCHEMA "PROVIDER_DB"."PROVIDER_SCH2" TO SHARE "DEMO82"
+5 GRANT USAGE ON SCHEMA "PROVIDER_DB"."PROVIDER_SCH3" TO SHARE "DEM002";
+6 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH1". "CUSTOMER_1" TO SHARE "DEMO02";
+7 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH1". "TBL_1" TO SHARE "DEMO02";
+8 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH1". "TBL_2" TO SHARE "DEMO02";
+9 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH1". "SECURE_MAT_VIEW_1" TO SHARE "DEM002";
+10 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH1". "SECURE_VIEW_1" TO SHARE "DEM002";
+11 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH2". "CUSTOMER_2" TO SHARE "DEMO02";
+12 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH2". "TBL 4" TO SHARE "DEMO02";
+13 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH2". "SECURE_VIEW_4" TO SHARE "DEMO82";
+14 GRANT SELECT ON VIEW "PROVIDER_DB"."PROVIDER_SCH3". "SECURE_MAT_VIEW_9" TO SHARE "DEM002";
