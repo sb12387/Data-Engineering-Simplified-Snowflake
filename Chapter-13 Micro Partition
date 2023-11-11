@@ -1,0 +1,237 @@
+--------------------------
+--CHAPTER-1 INTRODUCTION--
+--------------------------
+
+/* ==========================================
+Change the context via SQL statements
+========================================== */
+
+use role sysadmin;
+use warehouse compute_wh;
+use database tipsdb;
+use schema ch13;
+
+// Step-1
+// Create a table having no cluster key 
+	create or replace table t1_no_cluster ( 
+		o_orderkey number (38,8), 
+		o_custkey number (38,0), 
+		o_orderstatus varchar(1),
+		o_totalprice number (12,2), 
+		o_orderdate date,
+		o_orderpriority varchar(15),
+		o_clerk varchar(15),
+		o_shippriority number (38,0), 
+		o_comment varchar(79)
+	);
+
+// table t2 having order date as cluster key
+	create or replace table t2_order_dt( 
+		o_orderkey number (38,8), 
+		o_custkey number (38,0), 
+		o_orderstatus varchar(1),
+		o_totalprice number (12,2), 
+		o_orderdate date,
+		o_orderpriority varchar(15),
+		o_clerk varchar(15),
+		o_shippriority number (38,0), 
+		o_comment varchar(79)
+	)
+	cluster by (o_orderdate);
+	
+	
+// create a table having order priority as cluster key
+	create or replace table t3_order_priority( 
+		o_orderkey number (38,8), 
+		o_custkey number (38,0), 
+		o_orderstatus varchar(1),
+		o_totalprice number (12,2), 
+		o_orderdate date,
+		o_orderpriority varchar(15),
+		o_clerk varchar(15),
+		o_shippriority number (38,0), 
+		o_comment varchar(79)
+	)
+	cluster by (o_orderpriority);
+	
+// Step-2
+//let me populat data and here I am fast forwarding it 
+//as populating 5M in each table taks sometime. 
+
+
+
+
+
+
+//Step-3
+// lets see the table and associated cluster keys
+	show tables like '%%';
+	
+//Step-4
+// lets see the record count 
+	select count(*) from t1_no_cluster; 
+	select count(*) from t2_order_dt; 
+	select count(*) from t3_order_priority;
+	
+	
+//Step-5
+// now run a query against each table and see the behaviour
+// we will use the timestamp as field so it does not use the cache
+// you can also disable the catch using parameter setting at session level.
+
+// we will also choose a different warehouse of same size...
+
+//Step-6
+// lets validate our 1st query in our default warehouse where order priority is medium.
+	select * from t1_no_cluster where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10;
+	select * from t1_order_dt where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10;
+	select * from t1_order_priority where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10;
+
+﻿//Step-7
+﻿//=========
+-- choose a different wh and resume it to make sure we focus only on query execution time
+	use warehouse wh_01;
+	alter warehouse wh_01 RESUME IF SUSPENDED;
+	select from t1_no_cluster where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp() > 2020-01-0 08:08:49.426 -0800 limit 10; 
+-- has no cluster key
+	
+//Step-8
+﻿//=========
+-- choose a different wh and resume it to make sure we focus only on query execution time
+	use warehouse wh_02;
+	alter warehouse wh_02 RESUME IF SUSPENDED;
+	select from t2_order_dt where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10; 
+-- has order dt as cluster key
+
+//Step-9
+﻿//=========
+-- choose a different wh and resume it to make sure we focus only on query execution time
+	use warehouse wh_03;
+	alter warehouse wh_03 RESUME IF SUSPENDED;
+	select from t3_order_priority where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10 
+-- has order priority as cluster key
+
+-- now lets see the query history...
+
+
+
+
+--------------------------
+--CHAPTER-2 ALTER CLUSTER--
+--------------------------
+
+    use role sysadmin;
+    use database tipsdb; 
+    use schema ch13;
+
+--changing the cluster by key
+--t3_order_priority has order priority to order date 
+	alter table t3_order_priority cluster by (0_ORDERDATE);
+	show tables;
+	
+-- drop cluster key
+-- cluster by = clustering key (pay attention)
+	alter table t3_order_priority drop clustering key;
+	
+-- recluster the table but it is deprecated
+-- and it is unsupported feature
+	alter table t2_order_dt recluster ;
+
+
+
+/ =================================
+-- enables or disables Automatic Clustering for the table.
+-- if you have cluster key and wants to disable_automatic re-clustering 
+	alter table t2_order_dt suspend recluster ; 
+	
+-- if you have cluster key and wants to enable automatic re-clustering 
+	alter table t2_order_dt resume recluster ;
+
+-- it will throw an error in case we want to re-clustering for the no cluster table
+	alter table t1_no_cluster resume recluster :
+
+
+
+/*
+Important Note
+---------------
+Automatic Clustering consumes Snowflake credits,
+but does not require you to provide a virtual warehouse.
+Instead, Snowflake internally manages and
+achieves efficient resource utilization for reclustering the tables.
+*/
+
+
+
+-----------------------------
+--CHAPTER-3 EXTERNAL TABLES--
+-----------------------------
+
+// Can we have cluster key for external table 
+// lets try it out
+	create or replace external table exchange ( 
+		currency varchar AS (value:c1::varchar), 
+		clientcode varchar AS (value:c2::varchar), 
+		fromcurrencycode varchar AS (value:c3::varchar),
+		tocurrencycode varchar AS (value:c4::varchar),
+		fromcurrencyshort description varchar AS (value:c5::varchar), 
+		fromcurrencylongdescription varchar AS (value:c6::varchar), 
+		exchangerate varchar AS (value:c7::varchar),
+		ezloaddate varchar AS (value:c8::varchar)
+	)
+	cluster by (currency)
+	with location=@my_stg_ch13
+	auto_refresh= false
+	file_format (format_name = my_csv_file_format)
+;
+// external table does not have cluster key and it support only partition key 
+// we have seen it in earlier episodes...
+
+
+
+------------------------------
+--CHAPTER-4 CLUSTERING DEPTH--
+------------------------------
+
+use role sysadmin;
+use database tipsdb;
+use schema ch13;
+
+// t1 has no cluster key
+	select system$clustering_depth('t1_no_cluster');
+
+//t2 has order dt as cluster key
+	select system$clustering_depth('t2_order_dt');
+
+// t3 has a key but we dropped it.
+	select system$clustering_depth('t3_order_priority');
+
+
+-----------------------------------
+--CHAPTER-5 CLUSTERING INFORMATION--
+------------------------------------
+
+use role sysadmin;
+use database tipsdb;
+use schema ch13;
+
+select system$clustering information('t2_order_dt', '(o_orderdate)');
+
+
+-----------------------------
+--CHAPTER-6 CLUSTERING RATIO--
+-----------------------------
+
+use role sysadmin;
+use database tipsdb;
+use schema ch13;
+
+-- it is deprecated and replaced by
+	select system$clustering_ratio('t2_order_dt', '(o_orderdate)');
+
+
+--snowflake suggest either use clustering depth or clustering information.
+
+
+
+
