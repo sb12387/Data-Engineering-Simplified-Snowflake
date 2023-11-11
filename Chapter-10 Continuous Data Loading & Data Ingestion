@@ -1,0 +1,190 @@
+--Step1)-
+drop table my_customer;
+    create or replace table my_customer (
+        CUST_KEY NUMBER(38,0),
+        NAME VARCHAR(25),
+        ADDRESS VARCHAR(40),
+        NATION_KEY NUMBER(38,0),
+        PHONE VARCHAR(15),
+        ACCOUNT_BALANCE NUMBER(12,2),
+        MARKET_SEGMENT VARCHAR(10),
+        COMMENT VARCHAR(117)
+    );
+    
+    --lets see if it has any record
+    select * from my_customer;
+    
+--Step2)-
+   create or replace file format csv_ff type = 'csv'
+    field_optionally_enclosed_by = '\042';
+    
+--Step3)-
+-- before check if stg exist and has data
+    show stages like '%_010%';
+    
+    -- let's create it.
+    create or replace stage stg_010 
+        file_format = csv_ff
+        comment = 'This is my internal stage for ch-10';
+    
+    -- let's describe the stage using desc sql command
+    desc stage stg_010;
+
+
+    -- Step-04
+    -- lets put data into internal stage
+    
+    -- first we will load a history data to run and validate our copy command.
+    -- put file:///tmp/ch-10/history/customer-history.csv @stg_010/history auto_compress=false;
+    
+
+    list @stg_010/ pattern='.*.csv';
+    
+
+    -- ***********************************
+    -- Step-05
+    -- load into table
+    
+    copy into my_customer from @stg_010/history;
+
+    select * from my_customer;
+
+    -- lets remove the data from stage to make sure we save the cost
+    remove @stg_010/history/customer-history.csv ;
+
+    
+    -- Step-06
+    -- create a pipe object & understand its construct. 
+    drop pipe my_pipe_10;
+    create or replace pipe my_pipe_10 
+    as 
+    copy into my_customer from @stg_010/delta;
+    
+    -- describe the pipe object 
+    desc pipe my_pipe_10;
+
+    -- once the pipe object is created it has to be resumed.
+    alter pipe my_pipe_10 refresh;
+    -- as soon as you resume the pipe it becomes active.
+    
+    -- Step-07
+    -- monitor the pipe using system function called pipe_status
+
+    select SYSTEM$PIPE_STATUS('my_pipe_10');
+
+    -- there is a table function called validate_pipe_load to check the load history
+select * from table(validate_pipe_load(
+      pipe_name=>'my_pipe_10',
+      start_time=>dateadd(hour, -1, current_timestamp())));
+
+      -- what happens if we alter and pause the pipe
+    alter pipe my_pipe_10 set pipe_execution_paused = false;
+
+    -- modify after    
+    alter pipe my_pipe_10 refresh prefix='/customer_10*' modified_after='2021-11-01T13:56:46-07:00';
+
+    -- Step-08
+    -- then we will put additional delta file under delta sub folder.
+    -- put file:///tmp/ch-10/history/customer_101.csv @stg_010/delta auto_compress=false; 
+    -- put file:///tmp/ch-10/history/customer 102.csv @stg_010/delta auto compress=false:
+    -- put file:///tmp/ch-10/history/customer 103.csv @stg_010/delta auto compress=false:
+
+    -- pipe will not load data unless notification is available in snowflake queue
+    -- via python code
+
+--Monitor History
+
+use role accountadmin;
+
+select * from "SNOWFLAKE"."ACCOUNT_USAGE"."COPY_HISTORY" WHERE PIPE_NAME= 'MY_PIPE_10';
+select * from "SNOWFLAKE"."ACCOUNT_USAGE"."WAREHOUSE_LOAD_HISTORY";
+select * from "SNOWFLAKE"."ACCOUNT_USAGE"."LOAD_HISTORY";
+select * from "SNOWFLAKE"."ACCOUNT_USAGE"."METERING_HISTORY";
+select * from "SNOWFLAKE"."ACCOUNT_USAGE"."METERING_HISTORY" WHERE SERVICE_TYPE='PIPE';
+
+select name, sum(credits_used_compute), sum(credits_used_cloud_services), sum(credits_used)
+from "SNOWFLAKE"."ACCOUNT_USAGE"."METERING_HISTORY"
+group by name;
+select service_type, sum(credits_used_compute), sum(credits_used_cloud_services), sum(credits_used)
+from "SNOWFLAKE"."ACCOUNT_USAGE"."METERING_HISTORY"
+group by service_type;
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- Unnecessary code given in site
+---------------------------------------------------------------------------------------------------------------
+
+use role sysadmin;
+use database tipsdb;
+create schema ch10; 
+use schema ch10;
+
+CREATE WAREHOUSE ch10_demo_wh WITH 
+    WAREHOUSE_SIZE = 'MEDIUM' 
+    WAREHOUSE_TYPE = 'STANDARD' 
+    AUTO_SUSPEND = 300 
+    AUTO_RESUME = TRUE 
+    MIN_CLUSTER_COUNT = 1 
+    MAX_CLUSTER_COUNT = 1 
+    SCALING_POLICY = 'STANDARD' 
+COMMENT = 'this is demo warehouses';
+use warehouse ch10_demo_wh;
+
+alter session set query_tag ='chapter-10';
+
+-- you can craete named stages and then list them using list command
+    show stages;
+    list @STG01;
+    
+-- very simple contruct for internal stage
+    CREATE STAGE "TIPSDB"."CH09".stg03 COMMENT = 'This is my demo internal stage';
+    
+-- if you have lot of stages, then you can use like 
+    show stages like '%03%';
+    
+    show stages like '%s3%';
+    -- if it has credential, it will show
+
+-- very simple contruct for internal stage
+    CREATE STAGE "TIPSDB"."CH09".stg03 COMMENT = 'This is my demo internal stage';
+    
+-- if you have lot of stages, then you can use like 
+    show stages like '%03%';
+    
+    show stages like '%s3%';
+
+    list @~ pattern='.*test.*';
+    list @~ pattern='.*.gz';
+    list @~ pattern='.*.html';
+
+    show stages like 'TIPS_S3_EXTERNAL_STAGE';
+    list @TIPS_S3_EXTERNAL_STAGE;
+
+drop table customer_parquet_ff;
+    create or replace table customer_parquet_ff(
+        my_data variant
+    ) 
+    STAGE_FILE_FORMAT = (TYPE = PARQUET);
+
+list @%customer_parquet/;
+    -- now lets query the data using $ notation
+    select 
+        metadata$filename, 
+        metadata$file_row_number,
+        $1:CUSTOMER_KEY::varchar,
+        $1:NAME::varchar,
+        $1:ADDRESS::varchar,
+        $1:COUNTRY_KEY::varchar,
+        $1:PHONE::varchar,
+        $1:ACCT_BAL::decimal(10,2),
+        $1:MKT_SEGMENT::varchar,
+        $1:COMMENT::varchar
+        from @%customer_parquet_ff ;
+
+copy into customer_parquet_ff from @%customer_parquet_ff/customer.snappy.parquet;
+      
+      select * from  customer_parquet_ff;
+
+copy into customer_parquet_ff 
+        from @%customer_parquet_ff/customer.snappy.parquet
+        force=true;
