@@ -1,0 +1,625 @@
+create schema ch15; 
+use schema ch15;
+-----------------------------
+--CHAPTER-1 CH 15 SQL SCRIPTS
+-----------------------------
+
+
+
+
+
+
+
+
+
+-- Step-1
+-- create a simple-order table
+	create or replace table simple_order (
+		orderkey number(38,0),
+		custkey number (38,0),
+		orderstatus varchar(1),
+		totalprice number (12,2),
+		orderdate date,
+		orderpriority varchar(15)
+	);
+	
+-- lets populate a few thosand rows in this table
+	insert into simple_order (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority) 
+	select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority 
+	from snowflake_sample_data.tpch_sf1.orders order by o_orderkey limit 100000;
+	
+-- quickly validate the data bet
+select * from simple_order limit 10;
+
+-- Step-2
+-- before we clone the table lets perform one delete operation
+-- so we can also validate the time travel feature along side clone. (we have seen it in episode 14) 
+
+	delete from simple_order where orderkey between 30 and 40; -- 8 record deleted
+-- Query ID => 01b03243-0000-7eb2-0005-f7de0004323a
+
+-- now we will create a table called simple-order-clone using clone keyword
+create table simple_order_clone clone simple_order;
+
+-- lets check the table count in both the tables
+	select count(*) from simple_order;
+	select count(*) from simple_order_clone; -- both are same, and this is expected.
+
+-- Step-3
+-- is it zero copy clone?
+-- to identify that, we need to check information-schema's table data set
+	select * from "TIPSDB"."INFORMATION_SCHEMA"."TABLES";
+	select * from "TIPSDB"."INFORMATION_SCHEMA"."TABLES" where table_name in ('SIMPLE_ORDER', 'SIMPLE_ORDER_CLONE') 
+	and table_schema = 'CH15';
+-- rememer that the table names must be in upper case
+-- the number of records and bytes, both ale same here.
+
+-- lets check bytes fields in table storage-metrics view
+-- to access account usage, we have to switch to account admin role
+	use role accountadmin;
+	
+	select * from "SNOWFLAKE"."ACCOUNT_USAGE"."TABLE_STORAGE_METRICS"
+	where table_schema = 'CH15' and
+	table_name in ('SIMPLE_ORDER', 'SIMPLE_ORDER_CLONE')
+	limit 10;
+	
+-- Here we see that simple-order table has active bytes as well as time-travel-bytes
+-- but simple-clone-order does not have any active bytes & no time-travel-bytes and that's why it is called zero copy clone. 
+
+
+-- Step-5
+-- Now change both the tables independently and see how it behaves
+-- as we start operating in these tables
+
+-- as part of your ETL job, your simple-order table may get additional data
+
+	use role sysadmin;
+	insert into simple_order (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority)
+		select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority
+		from snowflake_sample_data.tpch_sf1.orders order by o_orderkey limit 1000;
+-- we are inserting duplicate records, but lets not worry about it for now
+
+
+-- and for debugging puporse we are making some update in simple-cloned-order table
+	update simple_order_clone set orderpriority = '1-URGENT' where orderkey < 100000 and orderpriority <> '1-URGENT' ; --19,986 rows updated
+	
+	
+-- Now lets check the information schema & account usage table
+
+select * from "TIPSDB"."INFORMATION_SCHEMA"."TABLES" where table_name in ('SIMPLE_ORDER', 'SIMPLE_ORDER_CLONE'); 
+--the table count will change
+
+	use role accountadmin;
+	
+	select * from "SNOWFLAKE"."ACCOUNT_USAGE"."TABLE_STORAGE_METRICS"
+	where table_schema = 'CH15' and
+	table_name in ('SIMPLE_ORDER', 'SIMPLE_ORDER_CLONE')
+	limit 10;
+	
+-- the active bytes will change..
+
+-- here on the cloned table has its own life cycle and any changes (like DML operation)
+-- will be captured within the cloned object
+-- and not on the source table and in this case it is simple-order table.
+
+
+
+-----------------------------------
+--CHAPTER-2 TRANSIENT TEMP CLONING
+-----------------------------------
+
+/*
+Now lets see how clone works for transient & temporary tables
+*/
+
+-- Step-1
+-- we will create a transitent table for order data
+	create or replace transient table trans_order (
+		orderkey number (38,0),
+		custkey number (38,0), 
+		orderstatus varchar(1),
+		totalprice number (12,2), 
+		orderdate date,
+		orderpriority varchar(15)
+	);
+	
+--lets populate 100 rows in this table
+	insert into trans_order (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority) 
+		select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority
+	    from snowflake_sample_data.tpch_sf1.orders order by o_orderkey limit 100;
+	
+-- quickly validate the data set
+	select * from trans_order limit 10;
+
+-- now we will clone the table using trans_order table
+	create table trans_order_cloned clone trans_order; --002120 (0A000): SQL compilation error: Transient object cannot be cloned to a permanent object.
+	
+	create or replace transient table trans_order_cloned clone trans_order;
+
+	show tables  like 'trans%';
+
+-- *********************************
+-- Now lets see how temp table behaves
+
+-- I am creating a temporary table called temp_order 
+	create or replace temporary table tmp_order (
+		orderkey number (38,0),
+		custkey number (38,0), 
+		orderstatus varchar(1),
+		totalprice number (12,2),
+		orderdate date,
+		orderpriority varchar(15)
+	);
+	
+--lets populate 180 rows in this table
+	insert into tmp_order (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority) 
+		select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority 
+		from snowflake_sample_data.tpch_sf1.orders order by o_orderkey limit 100;
+		
+-- quickly validate the data set 
+	select * from tmp_order limit 10;
+	
+-- temp table to permanent table not be cloned
+	create table tmp_order_cloned clone tmp_order; --002119 (0A000): SQL compilation error: Temp table cannot be cloned to a permanent table; clone to a transient table instead.
+	
+	create transient table tmp_order_cloned clone tmp_order;
+	
+-- but if we clone temp table to temp table it works. 
+	create temporary table tmp_order_cloned_01 clone tmp_order;
+	
+	show tables like 'tmp%';
+	
+-- can I create transient or temp table from permanent? 
+	create transient table permanent_to_trans clone simple_order; -- table is created
+	create temporary table permanent_to_temp clone simple_order; --table is created
+
+
+
+    
+-----------------------------------
+--CHAPTER-3 OBJECT DEPENDENCY
+-----------------------------------
+
+
+
+--	Step-1
+-- Lets create a sequence object so it can be used as identify column 
+-- https://docs.snowflake.com/en/user-guide/querying-sequences.html
+
+	create or replace sequence even_seq
+	start 2 
+	increment 2 
+	comment = 'my demo sequence';
+	
+-- Step-2
+-- next, create an order table having a sequence as identity object 
+--so here we are creating an object dependency within same schema. 
+	create or replace table order_with_seq (
+		id_seq number default even_seq.nextval, 
+		orderkey number (38,0),
+		custkey number (38,0),
+		orderstatus varchar(1),
+		totalprice number (12,2),
+		orderdate date,
+		orderpriority varchar(15)
+	);
+	
+-- lets populate 100 rows in this table
+	insert into order_with_seq (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority) 
+	select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority
+	from snowflake_sample_data.tpch_sf1.orders order by o_orderkey limit 100;
+	
+-- quickly validate the data set and sequence ids.
+	select * from order_with_seq limit 10;
+
+-- now lets clone the table and see the behaviours 
+	create table order_seq_clone clone order_with_seq;
+
+-- lets check what happens to sequence object
+	select get_ddl('table', 'order_seq_clone');
+-- it has got the reference to the same sequence object
+-- if your sequence object is in a different context (db.schema), you must check grants before inserting new records. 
+
+
+-- now lets check how insert works on clone table
+	insert into order_seq_clone (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority)
+		select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority
+		from snowflake_sample_data.tpch_sf1. orders order by o_orderkey limit 50;
+		
+-- so it will have a max id = 300
+
+-- so make sure when you clone, such object dependency should be validated for 
+-- object grants.
+
+select * from order_seq_clone;
+select * from order_with_seq;
+
+
+
+-----------------------------------
+--CHAPTER-4 EXTERNAL TABLE
+-----------------------------------
+
+
+
+
+--we have covered the external table in ch-12, ref card link
+
+-- lets create external stage
+	create stage my_ch15_s3
+		url = 's3://ch15-s3-bucket/csv/'
+		comment ='this customer csv data';
+
+
+--list all the files
+list @my_ch15_s3;
+
+--create a file format
+	create file format csv_ff 
+	type = 'csv'
+	compression = 'auto' 
+	field_delimiter = ','
+	record_delimiter = '\n'
+	skip_header = 0
+	field_optionally_enclosed_by = '\042' 
+	trim_space = false
+	error_on_column_count_mismatch = true
+	escape = 'none'
+	escape_unenclosed_field= '\134'
+	date_format = 'auto'
+	timestamp_format = 'auto' null_if = ('\\n');
+
+--create an external table using external stage 
+	create or replace external TABLE customer (
+		CUST_KEY varchar AS (value:c1::varchar), 
+		NAME varchar AS (value:c2::varchar), 
+		ADDRESS varchar AS (value:c3::varchar), 
+		NATION_KEY varchar AS (value:c4::varchar), 
+		PHONE varchar AS (value:c5::varchar),
+		ACCOUNT_BALANCE varchar AS (value:c6::varchar), 
+		MARKET_SEGMENT varchar AS (value:c7::varchar), 
+		COMMENT varchar AS (value:c8::varchar)
+	)
+	with location=@my_ch15_s3
+	file_format = (format_name = csv_ff);
+	
+-- lets see the data
+	select * from customer;
+	
+-- from external to permanent
+	create table customer_clone clone customer; -- Wont create permanent clone table
+	
+-- from external to external
+	create external table customer_clone clone customer; -- Wont create external clone table
+	
+-- ========================
+-- Following object types are not cloned:
+-- External tables
+-- Internal (Snowflake) stages
+
+
+-- lets try to clone the external stage
+	create or replace stage my_ch151s3_clone clone my_ch15_s3; --will create stage from stage
+	
+	show stages;
+	
+-- lets try internal stage
+	create stage my_ch15_internal comment = 'internal stg';
+
+--now clone it
+	create or replace stage my_ch15_internal_clone clone my_ch15_internal; --000002 (0A000): Unsupported feature 'Cloning internal and temporary stages'.    
+
+
+
+
+
+
+-----------------------------------
+--CHAPTER-5 FILE FORMAT SEQUENCE
+-----------------------------------
+
+-- lets clone sequence & file format objects and see how it works
+
+show file formats;
+create or replace file format csv_ff_clone clone csv_ff;
+
+
+show sequences;
+create or replace sequence even_seq_clone clone even_seq;
+
+-- lets run the next value
+select even_seq_clone.nextval, even_seq.nextval;
+
+-- change the incremental value and rerun the next value 
+	alter sequence even_seq_clone set increment =3;
+	select even_seq_clone.nextval, even_seq.nextval;
+
+
+
+
+
+
+
+-----------------------------------
+--CHAPTER-6 PIPE CLONE
+-----------------------------------
+
+
+
+-- creating the external stg + file format 
+	create stage ch15_pipe_s3
+	url = 's3://pipe_s3/csv'
+	comment = 'this customer csv data';
+
+	
+	create or replace file format csv_ff_pipe 
+		type = 'csv'
+		compression= 'auto' 
+		field_delimiter=','
+		record_delimiter = '\n'
+		skip_header = 0
+		field_optionally_enclosed_by = '\042'
+		null_if = ('\\N');
+		
+-- lets see the table data
+	select t.$1, t. $2, t.$3, t.$4, t.$5, t.$6, t.$7, t.$8 
+	from
+	@ch15_pipe_s3 (file_format => 'csv_ff_pipe') t;
+	
+	
+	create or replace table customer_pipe (
+		CUST_KEY varchar,
+		NAME varchar,
+		ADDRESS varchar,
+		NATION_KEY varchar,
+		PHONE varchar,
+		ACCOUNT_BALANCE varchar,
+		MARKET_SEGMENT varchar,
+		COMMENT varchar
+	);
+
+-- lets check our copy command
+copy into customer_pipe from @ch15_pipe_s3 file_format = 'csv_ff_pipe';
+
+-- cearing pipe
+	create or replace pipe customer_pipe
+	auto_ingest = true
+	as
+	Copy into customer_pipe from @ch15_pipe_s3 file_format = 'csv_ff_pipe' ;
+	
+-- lets check the pipe object
+	select system$pipe_status('tipsdb.ch15x.customer_pipe');
+	
+-- cloning pipe (this does not work)
+	create or replace pipe customer_pipe_clone clone customer_pipe;
+	
+-- but pipe cloning happens when database or schema is cloned 
+	create or replace schema ch15_cloned clone ch15;
+	
+--the status is STOPPED_CLONED
+	select system$pipe_status('tipsdb.ch15_cloned.customer_pipe');
+
+-- alter pipe tipsdb.ch15x_clone1.customer_pipe refresh;
+-- it has to be resumed via execution status
+	alter pipe tipsdb.ch15_cloned.customer_pipe set pipe_execution_paused = false; 
+	select system$pipe_status('tipsdb.ch15_cloned.customer_pipe');
+
+
+
+
+
+
+
+-----------------------------------
+--CHAPTER-7 STREAM OBJECTS
+-----------------------------------
+
+
+
+-- Step-1
+-- next, create an order table
+	create or replace table order_tbl ( 
+		orderkey number (38,0),
+		custkey number (38,0), 
+		orderstatus varchar(1), 
+		totalprice number (12,2), 
+		orderdate date,
+		orderpriority varchar(15)
+	);
+	
+-- lets populate 100 rows in this table
+	insert into order_tbl (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority) 
+		select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority 
+		from snowflake_sample_data.tpch_sf1.orders order by o_orderkey limit 100;
+		
+-- create stream object
+	create stream stream_order_tbl on table order_tbl;
+	
+	show streams;
+	
+-- now lets insert 10 additional records and capture the diff
+	insert into order_tbl (orderkey, custkey, orderstatus, totalprice, orderdate, orderpriority) 
+		select o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority 
+		from snowflake_sample_data.tpch_sf1. orders order by o_orderkey limit 10;
+		
+-- lets see the current state
+	select * from order_tbl;
+	select * from stream_order_tbl;
+	
+-- now clone the stream object
+	create or replace stream stream_order_tbl_clone clone stream_order_tbl;
+	
+	
+-- lets see the stream data in clone and soruce stream object
+	select * from stream_order_tbl_clone;
+	select * from stream_order_tbl;
+
+
+
+
+
+
+
+-----------------------------------
+--CHAPTER-8 TASk AND CLONE
+-----------------------------------
+
+
+
+	create or replace task task_ch15 
+		warehouse = compute_wh
+		schedule = '60 minute'
+		as
+		select current_user();
+		
+--resume the task
+	use role accountadmin;
+	alter task task_ch15 resume;
+	use role sysadmin;
+	
+show tasks;
+
+-- lets clone the task and it works
+	create task task_c15_clone clone task_ch15;
+-- the task will be suspended and it has to be resumed
+
+
+
+
+
+
+-----------------------------------
+--CHAPTER-9 DB-SCHEMA-COPY
+-----------------------------------
+
+
+
+-- have lots of schema and db + other objects & perform a clone
+
+-- lets create source db & 2 schema objects 
+	create or replace database ch15_src_db; 
+	create or replace schema ch15_src_sch01; 
+	create or replace schema ch15_src_sch02;
+	
+use schema ch15_src_db.ch15_src_sch01;
+
+-- create seq, table, views etc
+	create sequence seq01 start 2 increment 2;
+	create or replace table tbl1 (
+		id_seq number default seq01.nextval,
+		field1 varchar()
+	);
+	insert into tbl1 (field1) values ('a'), ('b'), ('c'), ('d'), ('e'); 
+	
+	create sequence seq02 start 1 increment 2;
+	create or replace transient table tbl2 (
+		id_seq number default seq02.nextval, 
+		field1 varchar()
+	);
+	insert into tbl2 (field1) values ('a'), ('b'), ('c'), ('d'), ('e'); 
+	
+	create or replace temporary table tbl3 (
+		field1 varchar()
+	);
+	insert into tbl3 (field1) values ('a'), ('b'), ('c'), ('d'), ('e'); 
+	
+	select * from tbl1;
+	select * from tbl2;
+	select * from tbl3;
+	
+-- load some data table stage
+    copy into @%tbl1 from tbl2;
+	list @%tbl1;
+	
+-- lets create a view
+	create or replace view vw1 (id, field1) as 
+		select * from tbl1
+		union all
+		select * from tb12;
+		
+select * from vw1;
+
+-- lets create a udf
+	CREATE FUNCTION my_udf (radius FLOAT)
+	RETURNS FLOAT
+	AS
+	$$
+		pi() * radius * radius
+	$$
+	;
+	
+-- materialized view
+    create or replace MATERIALIZED VIEW mvw as 
+	select * from vw1;
+		
+-- stream
+	create stream stream_tbl1 on table tbl1;
+
+
+	create or replace task task1
+		warehouse = compute_wh
+		schedule = '60 minute'
+		as
+		insert into tbl1 (field1) values ('a'), ('b'), ('c'), ('d'), ('e');
+		
+		
+    use role accountadmin;
+    alter task task1 resume;
+    use role sysadmin;
+
+
+    create or replace procedure my_sp() 
+	    returns float not null
+	    language javascript
+	    as
+	    $$
+	    	return 3.1415926;
+	    $$
+	    ;
+	
+	
+	create stage my_stg_1
+		url = 's3://db_s3_bucket/csv'
+		comment = 'this customer csv data';
+		
+	create or replace file format csv_ff_pipe 
+		type = 'csv'
+		compression = 'auto'
+		field_delimiter=','
+		record_delimiter = '\n'
+		skip_header = 0
+		field_optionally_enclosed_by = '\042'
+		null_if = ('\\N');
+	
+	
+	create or replace pipe my_pipe
+		auto_ingest = true
+		as
+		copy into tbl1 from @my_stg_1 file_format = 'csv_ff_pipe';
+
+
+--
+	use schema ch15_src_db.ch15_src_sch01;
+	show tables; -- 3 tables
+	show sequences; --2 sequences
+	show views; -- 2 std view
+	show materialized views; -- 1 material view
+	show stages; -- 1 external stg
+	show file formats; --1 file format 
+	show pipes; -- 1 pipe
+	show streams; -- one stream
+	show tasks; -- one task
+	show user functions; -- one udf
+	show procedures; -- one stored proc
+	
+	
+	create or replace database cloned_db_01 clone ch15_src_db;
+	show databases like 'cloned_db_01';
+	
+
+	use database cloned_db_01;
+	show schemas;
+
+
+
+  
