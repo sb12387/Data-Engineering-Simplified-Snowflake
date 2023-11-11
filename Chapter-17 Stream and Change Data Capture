@@ -1,0 +1,469 @@
+-----------------------------------
+--CHAPTER-1 STREAM - STANDARD TABLE
+-----------------------------------
+
+
+use role sysadmin;
+use database tipsdb;
+create schema ch17;
+use schema ch17;
+-- create a customer table as a source table
+-- and any DML operations on this table will be tracked by a stream object 
+	create or replace table customer(
+		id number,
+		first_name varchar,
+		last_name varchar, 
+		date_of_birbh date, 
+		active_flag boolean, 
+		city varchar
+	);
+	
+-- Insert 10 records
+	insert into customer values
+		(1, 'Joan', 'Luk', '3/15/2003', TRUE, 'New York'),
+		(2, 'Patrick', 'Renard', '4/29/2003', FALSE, 'Los Angeles'),
+		(3, 'Sim', 'Rose', '8/25/2008', TRUE, 'Chicago'),
+		(4, 'Lila', 'Vis', '9/19/1997', TRUE, 'Miami'),
+		(5, 'Charlie', 'Cook', '3/19/2003', FALSE, 'Dallas'), 
+		(6, 'Ryan', 'Clark', '4/13/2003', TRUE, 'Philadelphia'), 
+		(7, 'Davis', 'Bashful', '2/15/2003', TRUE, 'Houston'), 
+		(8, 'Nalty', 'Mason', '3/21/2003', TRUE, 'Atlanta'), 
+		(9, 'Quinn', 'Ris', '8/13/1997', TRUE, 'Washington'), 
+		(10, 'White', 'Klein', '1/21/2003', TRUE, 'Boston');
+		
+-- select and see the customer data which is my source table 
+	select * from customer;
+
+
+-- lets create a stream object to track the changes in source customer table 
+	create or replace stream customer_stream on table customer;
+	
+	--create or replace stream customer_stream_02 on table customer comment = 'my 2nd stream';
+
+-- lets execute select sql on customer_stream table
+	select * from customer_stream;
+	
+-- we can see there are 3 additional columns added to the table named 
+-- 1. METADATA$ACTION
+-- 2. METADATA$ISUPDATE
+-- 3. METADATA$ROW_ID
+
+-- there is no record as no insert, update, delete performed on customer source table.
+
+-- Now lets perform DML operations.
+-- start with inserting 2 new records to customer table.
+	insert into customer values
+		(11, 'Irwin', 'Chuk', '8/13/2000', TRUE, 'San Jose'),
+		(12, 'Daniel', 'Jiw', '1/21/2000', TRUE, 'Newark');
+		
+-- 2 new records inserted and now if we execute query stream object as well as source customer table. 
+	select * from customer_stream order by id;
+	select * from customer;
+	
+	select * from customer_stream_02 order by id;
+-- deleting a row with customer id = 9
+	delete from customer where id = 9;
+
+-- lets see how select statement fetches the result
+	select * from customer_stream order by id;
+	select * from customer;
+	
+-- updating 2 records
+	update customer set city = 'New Jersey' where id = 3;
+	update customer set active_flag = True where id = 5;
+
+-- lets see how select statement fetches the result
+	select * from customer_stream order by id;
+	select * from customer;
+	
+-- so for insert and delete, 1 record per operation is available in the stream object
+-- for update there are 2 records per update operation.
+
+-- The action metadata fields capture what is DML operation is peformed (insert, delete or update)
+-- When it comes to update DML, it is represented as delete followed by an insert and that's how it is captured. 
+
+-- how to see stream info
+
+-- check the context
+	select current_database(), current_schema();
+	
+-- show all stream within the database and schema
+	show streams;
+	
+-- desc a stream
+	desc stream customer_stream;
+	
+-- get stream ddl
+	select get_ddl('stream', 'customer_stream');
+
+--run alter command
+	alter stream customer_stream set comment = 'my stream on customer table with 14 days cdc period';
+	desc stream customer_stream;
+	
+	alter stream customer_stream unset comment;
+	desc stream customer_stream;
+	
+	drop stream ;
+
+	create or replace stream customer_stream_02 on table customer comment = 'my 2nd stream';
+    
+    insert into customer values
+	(13, 'Irwin-01', 'Chuk', '8/13/2000', TRUE, 'San Jose'),
+	(14, 'Daniel-02', 'Jiw', '1/21/2000', TRUE, 'Newark');
+    
+    select * from customer_stream order by id;
+    select * from customer_stream_02 order by id;
+
+-----------------------------------
+--CHAPTER-2 APPEND ONLY STREAM
+-----------------------------------
+
+
+
+
+-- lets create a new customer table to check how append only stream type works 
+	create or replace table customer_append_only(
+		id number,
+		first_name varchar,
+		last_name varchar, 
+		date_of_birbh date,
+		active_flag boolean, 
+		city varchar
+	);
+	
+-- Insert 10 records
+	insert into customer_append_only values
+		(1, 'Joan', 'Luk', '3/15/2003', TRUE, 'New York'),
+		(2, 'Patrick', 'Renard', '4/29/2003', FALSE, 'Los Angeles'),
+		(3, 'Sim', 'Rose', '8/25/2008', TRUE, 'Chicago'),
+		(4, 'Lila', 'Vis', '9/19/1997', TRUE, 'Miami'),
+		(5, 'Charlie', 'Cook', '3/19/2003', FALSE, 'Dallas'), 
+		(6, 'Ryan', 'Clark', '4/13/2003', TRUE, 'Philadelphia'), 
+		(7, 'Davis', 'Bashful', '2/15/2003', TRUE, 'Houston'), 
+		(8, 'Nalty', 'Mason', '3/21/2003', TRUE, 'Atlanta'), 
+		(9, 'Quinn', 'Ris', '8/13/1997', TRUE, 'Washington'), 
+		(10, 'White', 'Klein', '1/21/2003', TRUE, 'Boston');
+	
+--select and see the customer data
+	select * from customer_append_only;
+	
+	
+-- lets create a stream object to track the changes
+	create or replace stream append_only_stream on table customer_append_only 
+	append_only = true;
+	
+-- lets execute select sql on customer_stream table
+	select * from append_only_stream;
+
+
+
+-- Now lets perform DML operation which include insert, delete and update
+	insert into customer_append_only values
+	(11, 'Irwin', 'Chuk', '8/13/1997', TRUE, 'San Jose'),
+	(12, 'Daniel', 'Jiw', '1/21/2003', TRUE, 'Newark');
+	
+-- 2 new records inserted and now if we execute select statement on cusotmer + customer stream table 
+	select * from append_only_stream order by id;
+
+-- deleting a customer with customer id = 9 
+	delete from customer_append_only where id= 9;
+	
+-- lets see how select statement fetches the result 
+	select * from append_only_stream order by id;
+	
+-- updating 2 records
+	update customer_append_only set city = 'New Jersey' where id= 3; 
+	update customer append_only set active_flag = False where id= 5;
+	
+-- lets see how select statement fetches the result
+	select * from append_only_stream order by id;
+	
+	
+-- show all stream within the database and schema 
+	show streams;
+	
+-- desc a stream
+	desc stream append_only_stream;
+
+
+
+
+
+
+
+-----------------------------------
+--CHAPTER-3 STREAM ON TRANSIENT
+-----------------------------------
+
+
+
+
+	create or replace transient table customer_transient(
+		id number,
+		first_name varchar,
+		last_name varchar, 
+		date_of_birbh date,
+		active_flag boolean, 
+		city varchar
+	);
+	
+-- Insert 10 records
+	insert into customer_transient values
+		(1, 'Joan', 'Luk', '3/15/2003', TRUE, 'New York'),
+		(2, 'Patrick', 'Renard', '4/29/2003', FALSE, 'Los Angeles'),
+		(3, 'Sim', 'Rose', '8/25/2008', TRUE, 'Chicago'),
+		(4, 'Lila', 'Vis', '9/19/1997', TRUE, 'Miami'),
+		(5, 'Charlie', 'Cook', '3/19/2003', FALSE, 'Dallas'), 
+		(6, 'Ryan', 'Clark', '4/13/2003', TRUE, 'Philadelphia'), 
+		(7, 'Davis', 'Bashful', '2/15/2003', TRUE, 'Houston'), 
+		(8, 'Nalty', 'Mason', '3/21/2003', TRUE, 'Atlanta'), 
+		(9, 'Quinn', 'Ris', '8/13/1997', TRUE, 'Washington'), 
+		(10, 'White', 'Klein', '1/21/2003', TRUE, 'Boston');
+
+-- select and see the customer data
+	select * from customer_transient;
+	
+	
+-- lets create a stream object to track the changes
+	create or replace stream transient_stream on table customer_transient;
+	
+-- lets execute select sql on customer_stream table
+	select * from transient_stream;
+	
+-- show all stream within the database and schema 
+	show streams;
+	
+--desc a stream
+	desc stream transient_stream;
+	
+	
+	
+--Now lets perform DML operation which include insert, delete and update 
+	insert into customer_transient values
+	(11, 'Irwin', 'Chuk', '8/13/1997', TRUE, 'San Jose'),
+	(12, 'Daniel', 'Jiw', '1/21/2003', TRUE, 'Newark');
+	
+-- deleting a customer with customer id = 9 
+	delete from customer_transient where Id = 9;
+	
+	
+-- updating 2 records
+	update customer_transient set city = 'New Jersey' where id= 3; 
+	update customer_transient set active_flag = True where id= 5;
+	
+-- lets see how select statement fetches the result
+	select * from transient_stream order by id;
+	
+
+
+
+
+-----------------------------------
+--CHAPTER-4 STREAM + TIME TRAVEL
+-----------------------------------
+	
+	
+	
+	create or replace table customer_no_timetravel(
+		id number,
+		first_name varchar,
+		last_name varchar, 
+		date_of_birbh date,
+		active_flag boolean, 
+		city varchar
+	)
+	data_retention_time_in_days=0;
+	
+	
+	insert into customer_no_timetravel values
+		(1, 'Joan', 'Luk', '3/15/2003', TRUE, 'New York'),
+		(2, 'Patrick', 'Renard', '4/29/2003', FALSE, 'Los Angeles'),
+		(3, 'Sim', 'Rose', '8/25/2008', TRUE, 'Chicago'),
+		(4, 'Lila', 'Vis', '9/19/1997', TRUE, 'Miami'),
+		(5, 'Charlie', 'Cook', '3/19/2003', FALSE, 'Dallas'), 
+		(6, 'Ryan', 'Clark', '4/13/2003', TRUE, 'Philadelphia'), 
+		(7, 'Davis', 'Bashful', '2/15/2003', TRUE, 'Houston'), 
+		(8, 'Nalty', 'Mason', '3/21/2003', TRUE, 'Atlanta'), 
+		(9, 'Quinn', 'Ris', '8/13/1997', TRUE, 'Washington'), 
+		(10, 'White', 'Klein', '1/21/2003', TRUE, 'Boston');
+
+	select * from customer_no_timetravel;	
+	create or replace stream customer_zero_tt_stream on table customer_no_timetravel;
+	
+-- show all stream within the database and schema
+	show streams;
+	
+--desc a stream
+	desc stream customer_zero_tt_stream;
+
+-- Now lets perform DML operation which include insert, delete and update 
+	insert into customer_no_timetravel values
+	(11, 'Irwin', 'Chuk', '8/13/1997', TRUE, 'San Jose'), 
+	(12, 'Daniel', 'Jiw', '1/21/2003', TRUE, 'Newark'); 
+	
+-- deleting a customer with customer id=9 
+	delete from customer_no_timetravel where id = 9; 
+	
+	
+-- updating 2 records
+	update customer_no_timetravel set city= 'New Jersey' where id = 3;
+	update customer_no_timetravel set active_flag = True where id = 5;
+
+ 	select * from customer_no_timetravel;
+	
+-- lets see how select statement fetches the result
+	select * from customer_zero_tt_stream order by id;
+	
+
+
+
+
+
+-----------------------------------
+--CHAPTER-5 CONSUME STREAM
+-----------------------------------
+
+
+-- lets create a source table called 
+	create or replace table customer_raw( 
+		id number,
+		first_name varchar, 
+		last_name varchar, 
+		date_of_birth date,
+		active_flag boolean, 
+		city varchar
+	);
+	
+-- Insert 10 records
+	insert into customer_raw values
+		(1, 'Joan', 'Luk', '3/15/2003', TRUE, 'New York'),
+		(2, 'Patrick', 'Renard', '4/29/2003', FALSE, 'Los Angeles'),
+		(3, 'Sim', 'Rose', '8/25/2008', TRUE, 'Chicago'),
+		(4, 'Lila', 'Vis', '9/19/1997', TRUE, 'Miami'),
+		(5, 'Charlie', 'Cook', '3/19/2003', FALSE, 'Dallas'), 
+		(6, 'Ryan', 'Clark', '4/13/2003', TRUE, 'Philadelphia'), 
+		(7, 'Davis', 'Bashful', '2/15/2003', TRUE, 'Houston'), 
+		(8, 'Nalty', 'Mason', '3/21/2003', TRUE, 'Atlanta'), 
+		(9, 'Quinn', 'Ris', '8/13/1997', TRUE, 'Washington'), 
+		(10, 'White', 'Klein', '1/21/2003', TRUE, 'Boston');
+
+
+
+-- only active customer will be there 
+	create or replace table customer_dim( 
+		id number,
+		first_name varchar,
+		last_name varchar, 
+		date_of_birth date,
+		active_flag boolean, 
+		city varchar
+	);
+	
+-- 1st time add all records from raw customer table to customer_dim table 
+	insert into customer_dim select * from customer_raw;
+	
+-- lets execute select and check rows
+	select * from customer_raw;
+	select * from customer_dim;
+	
+	create or replace stream customer_dim_stream on table customer_raw; 
+	show streams like '%dim%';
+	
+-- now insert 2 records
+	insert into customer_raw values
+	(11, 'Irwin', 'Chuk', '8/13/2000', TRUE, 'San Jose'),
+	(12, 'Daniel', 'Jiw', '1/21/2000', TRUE, 'Newark');
+	
+-- deleting a customer with customer id = 9 
+	delete from customer_raw where id = 9;
+	
+	
+-- updating 2 records
+	update customer_raw set city = 'New Jersey' where id= 3;
+	update customer_raw set active_flag = True where id= 5;
+	
+	select * from customer_dim_stream;
+
+
+-- to consume stream data, your SQL statement should be part of a transaction like shown below 
+-- or a stored procedure
+
+-- start a transaction
+	begin transaction;
+	
+-- consume the stream
+	insert into customer_dim
+	select id, first_name, last_name, date_of_birth, active_flag, city from customer_dim_stream 
+	where
+		metadata$action ='INSERT' and
+		METADATA$ISUPDATE = False;
+	;
+	
+-- commit
+commit;
+
+	select * from customer_raw;
+	select * from customer_dim;
+    select * from customer_dim_stream;
+
+-- if you rollback, the stream data will still stay with stream object.
+-- In general, stored procedure
+
+
+
+
+
+
+-------------------------------------
+--CHAPTER-6 STREAM ON EXTERNAL STREAM
+-------------------------------------
+
+
+
+-- lets create external stage
+	create stage my_ch17_s3
+		url='s3://ch-17-s3/csv/'
+		comment = 'this customer csv data';
+
+		
+--list all the files
+	list @my_ch17_s3;
+	
+--create a file format
+	create file format csv_ff 
+		type = 'csv'
+		compression = 'auto' 
+		field_delimiter = ','
+		record_delimiter = '\n' 
+		skip_header = 0
+		field_optionally_enclosed_by = '\042'
+		trim_space= false
+		error_on_column_count_mismatch = true
+		escape = 'none'
+		escape_unenclosed_field= '\134'
+		date_format = 'auto'
+		timestamp_format = 'auto' null_if = ('\\n');
+		
+-- create an external table using external stage 
+	create or replace external TABLE customer_ext ( 
+		CUST_KEY varchar AS (value:c1::varchar), 
+		NAME varchar AS (value:c2::varchar), 
+		ADDRESS varchar AS (value:c3::varchar), 
+		NATION_KEY varchar AS (value:c4::varchar), 
+		PHONE varchar AS (value:c5::varchar),
+		ACCOUNT_BALANCE varchar AS (value:c6::varchar), 
+		MARKET_SEGMENT varchar AS (value:c7::varchar), 
+		COMMENT varchar AS (value:c8::varchar)
+	)
+	with location=@my_ch17_s3
+	file_format = (format_name= csv_ff);
+	
+-- lets see the data
+	select * from customer_ext;
+
+	create or replace stream ext_tbl_stream on external table customer_ext;,
+
+	create or replace stream ext_tbl_stream on external table customer_ext 
+	insert_only= true;
+
+	show streams:
