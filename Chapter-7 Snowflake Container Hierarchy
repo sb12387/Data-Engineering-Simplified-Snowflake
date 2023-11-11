@@ -1,0 +1,311 @@
+-- set context & warehouse
+use role sysadmin;
+
+-- create a database
+    create database my_db 
+    comment = 'this is my demo db';
+    
+    show databases like 'MY%';
+   
+    
+    -- as soon as you create the db, the context is changed and current db is set
+    select current_role(), current_database();
+
+
+-- create a schema
+    create schema my_schema
+    comment = 'this is my demo schema under my_db';
+    
+    show schemas;
+
+    -- as soon as you create the db, the context is changed and current db is set
+    select current_role(), current_database(), current_schema();
+    
+    -- you can alternatively create db & schema via Database table a
+    -- you can also create it using snowsight 
+
+-- lets change the context using use sql statement  (or via ... function from worksheet)
+    use database my_db;
+    use schema my_schema;
+    select current_role(), current_database(), current_schema();
+
+    
+    drop table if exists my_table;
+    create table my_table (
+      num number,
+      num10_1 number(10,1),
+      decimal_20_2 decimal(20,2),
+      numeric numeric(30,3),
+      int int,
+      integer integer
+    );
+    
+    desc table my_table;
+    --desc table my_db.my_schema.my_table; -- fully qualified name
+    
+    select get_ddl('table','my_table');
+    
+    insert into my_table(num,num10_1,decimal_20_2,numeric,int,integer) 
+    values(10,22.2,33.33,123456789,987654321,12112);
+    
+    -- multiple insert using single statement
+    insert into my_table(num,num10_1,decimal_20_2,numeric,int,integer) 
+    values (20,22.2,33.33,123456789,987654321,12112), (30,22.2,33.33,123456789,987654321,12112);
+    
+    select * from my_table;
+    select * from my_db.my_schema.my_table; -- fully qualified name
+    select * from "my_db.my_schema.my_table"; -- fully qualified name [SB] --Error Object '"my_db.my_schema.my_table"' does not exist or not authorized.
+    select * from "my_db"."my_schema"."my_table"; -- fully qualified name [SB] --Error Database '"my_db"' does not exist or not authorized.
+    
+    
+    -- 
+    drop table if exists my_text_table;
+    create table my_text_table (
+        id int autoincrement,
+        v varchar,
+        v50 varchar(50),
+        c char,
+        c10 char(10),
+        s string,
+        s20 string(20),
+        t text,
+        t30 text(30)
+        );
+        
+     desc table my_text_table;
+     
+     insert into my_text_table(v,v50,c,c10,s,s20,t,t30) 
+     values('a','b','c','d','e','f','g','h');
+     
+     -- lets load data using webui
+     select * from my_text_table;
+     
+     -- boolean data set
+     create or replace table my_boolean_table(
+        b boolean,
+        n number,
+        s string);
+        
+      desc table my_boolean_table;
+        
+     insert into my_boolean_table values (true, 1, 'yes'), (false, 0, 'no'), (null, null, null);
+     select * from my_boolean_table;
+     
+-- time stamp table
+     drop table if exists my_ts_tablel;
+     create or replace table my_ts_table(
+       today_date date default current_date(),
+       now_time time default current_time(),
+       now_ts timestamp default current_timestamp()
+      );
+      
+      -- lets desc the table
+      desc table my_ts_table;
+      
+      -- insert one record
+      insert into my_ts_table (today_date,now_time,now_ts) values (current_date, current_time,current_timestamp);
+      insert into my_ts_table (now_time,now_ts) values (current_time,current_timestamp);
+      
+      -- now select the data
+      select * from my_ts_table;
+      
+      -- change the session level timezone and see the result
+      alter session set timezone = 'America/Los_Angeles';
+      alter session set timezone = 'Japan';
+      alter session set timestamp_output_format = 'YYYY-MM-DD HH24:MI:SS.FF';
+      
+      
+// ====================================================================
+-- Upper, Lower & Mixed case table
+    drop table my_case_table;
+    create table my_case_table (my_field string);
+    desc table my_case_table;
+    show tables like 'MY_C%';
+    create table MY_CASE_TABLE (my_field string);
+    create table my_CASE_TABLE (my_field string);
+
+    -- run show tables command
+    show tables;
+
+// ====================================================================
+-- Object Identifier
+  create table "my table" (my_field string);
+  create table "My Table" ("my field" string);
+  create table "MY TABLE" ("my field" string, "My Field" string);
+  
+  show tables;
+  desc table "my table";
+  desc table "MY TABLE" ;
+  
+  
+// ====================================================================
+-- Create table as select
+    create table my_ctas as select * from my_db.my_schema.my_table;
+    
+    select * from my_ctas;
+
+-- Load data using select as statement
+    insert into my_ctas (num ,num10_1, decimal_20_2 ,numeric,int ,integer) 
+            select 
+                num ,num10_1, decimal_20_2 ,numeric,int ,integer 
+            from 
+                my_db.my_schema.my_table;
+                
+-- load data via web interface
+-- load a csv file'
+
+// =====================================================================
+-- lets quickly understand the const
+    drop table if exists my_constaints_table;
+    create table my_constaints_table (
+      emp_pk string primary key,
+      fname string not null,
+      lname string not null,
+      flag string default 'active',
+      unique_code string unique
+    );
+    
+    insert into my_constaints_table (emp_pk,fname,lname,unique_code)
+    values   ('100','John1','K','1000'),
+             ('100','John2','K','1000');
+             
+    select * from my_constaints_table;
+    
+    -- below throws error as PK is missing
+    insert into my_constaints_table (fname,lname,unique_code)
+    values   ('John3','K','1000');
+    
+    -- below throws error as non-null column value is missing
+    insert into my_constaints_table (emp_pk,fname,unique_code)
+    values   (100,'John4','1000');
+    
+    -- so you have to take care of PK and Uniqueness, only Not-null is applifed
+
+// =========================================================
+
+  -- put file:///tmp/ch07.csv @my_stg;
+  
+  list @my_stg;
+  
+  /* sample data
+    100,22.2,33.33,123456789,987654321,12112
+    200,22.2,33.33,123456789,987654321,12112
+    300,22.2,33.33,123456789,987654321,12112
+  */
+
+    -- list the stage
+    list @ch7_stg;
+    
+    -- lets view the data first
+    create or replace file format my_format type = 'csv' field_delimiter = ',';
+    select t.$1, t.$2, t.$3,t.$4, t.$5, t.$6 from @my_stg (file_format => 'my_format') t; 
+
+    
+    -- now we can use copy command to load data
+    
+    drop table if exists my_stg_table;
+    create table my_stg_table (
+      num number,
+      num10_1 number(10,1),
+      decimal_20_2 decimal(20,2),
+      numeric numeric(30,3),
+      int int,
+      integer integer
+    );
+    
+    -- lets check data
+    select * from my_stg_table;
+    
+    -- now load data via copy command
+    copy into my_stg_table 
+    from @my_stg/ch07.csv.gz
+    file_format = (format_name = my_format)
+    on_error='continue';
+
+    -- lets check data
+    select * from my_stg_table;
+    
+    -- create using ctas
+    create table my_ctas_big_table as select * from "SNOWFLAKE_SAMPLE_DATA"."TPCH_SF100"."ORDERS";
+    
+    -- change the time travel to 30 days;
+    alter table my_ctas_big_table set data_retention_time_in_days=0;
+    
+    -- lets check the table before update
+    select * from my_ctas_big_table limit 10;
+    
+    -- lets change the status
+    select  O_ORDERSTATUS,count(1) from my_ctas_big_table group by O_ORDERSTATUS;
+    
+    -- update the data and see the storage cost now
+    update my_ctas_big_table set O_ORDERSTATUS ='o' where O_ORDERSTATUS = 'O';
+
+    --How Time Travels Works
+    select  count(*) from my_ctas_big_table before (statement => '01afb1ba-0000-7914-0000-0005f7de4af5') -- COpy previous query_id
+    where  O_ORDERSTATUS = 'O';
+    
+    select  count(*) from my_ctas_big_table where  O_ORDERSTATUS = 'P';
+    
+    
+//=======================================
+-- Variant Data
+    create table json_weather_data (v variant);
+    desc table json_weather_data;
+    
+    create stage nyc_weather
+    url = 's3://snowflake-workshop-lab/weather-nyc';
+
+    -- list wheather
+    list @nyc_weather;
+    
+    -- copy from external stage
+    copy into json_weather_data 
+    from @nyc_weather 
+    file_format = (type=json);
+    
+    -- select data
+    select * from json_weather_data limit 10;
+    
+    -- create a view
+    create view json_weather_data_view as
+    select
+      v:time::timestamp as observation_time,
+      v:city.id::int as city_id,
+      v:city.name::string as city_name,
+      v:city.country::string as country,
+      v:city.coord.lat::float as city_lat,
+      v:city.coord.lon::float as city_lon,
+      v:clouds.all::int as clouds,
+      (v:main.temp::float)-273.15 as temp_avg,
+      (v:main.temp_min::float)-273.15 as temp_min,
+      (v:main.temp_max::float)-273.15 as temp_max,
+      v:weather[0].main::string as weather,
+      v:weather[0].description::string as weather_desc,
+      v:weather[0].icon::string as weather_icon,
+      v:wind.deg::float as wind_dir,
+      v:wind.speed::float as wind_speed
+    from json_weather_data
+    where city_id = 5128638;
+    
+    select * from json_weather_data_view;
+    
+    -- create external table
+    create or replace external table json_weather_data_et (
+        time varchar AS (value:c1::varchar), 
+        ....
+    
+    )
+    with location=@nyc_weather
+    auto_refresh = false
+    file_format = (format_name = file_format)
+;
+
+
+// =======================================
+-- Temp & Transitent table
+    
+    // create a transitent table
+    create transient table json_weather_data (v variant); --[SB]Error Object 'JSON_WEATHER_DATA' already exists.
+    
+    // create a temporaty table 
+    create temporary table json_weather_data (v variant);
