@@ -1,0 +1,495 @@
+create database my_db_11;
+use database my_db_11;
+create schema my_schema_11;
+use schema my_db_11;
+
+
+
+
+-----------------------------------------------------------
+--Part-1 SQL Scripts — External Table For CSV Files
+-----------------------------------------------------------
+
+    -- lets create external stage in s3
+    drop stage s3_customer_csv;
+    create stage s3_customer_csv 
+        url = 's3://my-s3-data-lake/customer/csv/' 
+        comment = 'this customer parquet data';
+        
+    -- desc the stage and validate the definition
+    -- and on_error parameters
+    desc stage s3_customer_csv;
+    
+    -- lets list the stage to see all the files and path 
+    list @s3_customer_csv;
+    
+    -- create a csv file format
+    create file format csv_ff 
+        type = 'csv' 
+        compression = 'auto' 
+        field_delimiter = ',' 
+        record_delimiter = '\n' 
+        skip_header = 0 
+        field_optionally_enclosed_by = '\042' 
+        null_if = ('\\N');
+        
+        
+     -- select external stage using $ notation
+     select t.$1, t.$2, t.$3,t.$4, t.$5, t.$6 , t.$7, t.$8 
+        from 
+     @s3_customer_csv (file_format => 'csv_ff') t; 
+        
+    -- what if you give one. extra colum in your $ notation
+    select t.$1, t.$2, t.$3,t.$4, t.$5, t.$6 , t.$7, t.$8, t.$9 
+        from 
+    @s3_customer_csv (file_format => 'csv_ff') t; 
+
+    // it will appear null, so be careful with such column.
+     
+create or replace external TABLE customer_csv_et (
+        CUST_KEY varchar AS (value:c1::varchar),
+        NAME varchar AS (value:c2::varchar),
+        ADDRESS varchar AS (value:c3::varchar),
+        NATION_KEY varchar AS (value:c4::varchar),
+        PHONE varchar AS (value:c5::varchar),
+        ACCOUNT_BALANCE varchar AS (value:c6::varchar),
+        MARKET_SEGMENT varchar AS (value:c7::varchar),
+        COMMENT varchar AS (value:c8::varchar)
+    )
+with location=@s3_customer_csv
+auto_refresh = false
+file_format = (format_name = csv_ff)
+;
+
+-- lets see the extra value column and it is available in json format.
+select * from customer_csv_et;
+
+--this doesn't work even if there is a value variant field
+create or replace external TABLE customer_csv_et_dummy (
+    )
+with location=@s3_customer_csv
+auto_refresh = false
+file_format = (format_name = csv_ff);
+
+-- select the table
+select * from customer_csv_et;
+
+-- fetch the value column and metadata column
+select value, metadata$filename from customer_csv_et;
+
+-- select clause
+select value, metadata$filename from customer_csv_et where metadata$filename ='customer/csv/customer_003.csv';
+
+-- if you are not sure about the column names etc, then you can simply add a dummy column and check all values
+create or replace external TABLE customer_csv_et_dummy (
+      col1 varchar AS (value:c1::varchar)
+    )
+    with location=@s3_customer_csv
+    auto_refresh = false
+    file_format = (format_name = csv_ff);
+
+    select * from customer_csv_et_dummy;
+
+    desc external_table customer_csv_et type='column';
+    desc external_table customer_csv_et type='stage';
+
+-- clean stuff
+
+
+-----------------------------------------------------------
+--Part-2 SQL Scripts — Table Partition
+-----------------------------------------------------------
+
+    -- lets create external stage in s3
+    drop stage s3_customer_csv_partition;
+    create stage s3_customer_csv_partition 
+        url = 's3://my-s3-data-lake/partition/segment/' 
+        comment = 'this partition data for customer table by market segment';
+
+    -- desc the stage and validate the definition
+    -- and on_error parameters
+    desc stage s3_customer_csv_partition;
+    
+    -- lets list the stage to see all the files and path 
+    list @s3_customer_csv_partition;
+
+
+     -- select external stage using $ notation
+     select t.$1, t.$2, t.$3,t.$4, t.$5, t.$6 , t.$7, t.$8 
+        from 
+     @s3_customer_csv_partition (file_format => 'csv_ff') t; 
+
+    -- check the partition files
+    select metadata$filename from  @s3_customer_csv_partition; 
+
+    select split_part(metadata$filename, '/', 3) from  @s3_customer_csv_partition; 
+     
+    // it will appear null, so be careful with such column.
+     // now create the table with partition column
+    create or replace external TABLE customer_partition_et (
+        partition_col varchar AS  split_part(metadata$filename, '/', 3),
+        CUST_KEY varchar AS (value:c1::varchar),
+        NAME varchar AS (value:c2::varchar),
+        ADDRESS varchar AS (value:c3::varchar),
+        NATION_KEY varchar AS (value:c4::varchar),
+        PHONE varchar AS (value:c5::varchar),
+        ACCOUNT_BALANCE varchar AS (value:c6::varchar),
+        MARKET_SEGMENT varchar AS (value:c7::varchar),
+        COMMENT varchar AS (value:c8::varchar)
+    )
+    partition by (partition_col) 
+    with location=@s3_customer_csv_partition
+    file_format = (format_name = csv_ff)
+    ;
+
+
+    // to create no partition column to see the scan data set
+    create or replace external TABLE customer_no_partition_et (
+        CUST_KEY varchar AS (value:c1::varchar),
+        NAME varchar AS (value:c2::varchar),
+        ADDRESS varchar AS (value:c3::varchar),
+        NATION_KEY varchar AS (value:c4::varchar),
+        PHONE varchar AS (value:c5::varchar),
+        ACCOUNT_BALANCE varchar AS (value:c6::varchar),
+        MARKET_SEGMENT varchar AS (value:c7::varchar),
+        COMMENT varchar AS (value:c8::varchar)
+    )
+    with location=@s3_customer_csv_partition
+    file_format = (format_name = csv_ff)
+    ;
+    -- this updates the metadata --an external table doesn't get refreshed automatically and this will ensure all files in external table gets registered with metadata
+    alter external table customer_partition_et refresh;
+    alter external table customer_csv_et refresh;
+
+
+
+    -- byte scanned compare & time compare 
+    select * from customer_partition_et where partition_col='MACHINERY';
+    select * from customer_csv_et where MARKET_SEGMENT='MACHINERY';
+
+    
+    select * from customer_partition_et where partition_col='FURNITURE';
+    select * from customer_no_partition_et where MARKET_SEGMENT='FURNITURE';
+
+    
+-----------------------------------------------------------
+--Part-3 SQL Scripts — External Table & Streams
+-----------------------------------------------------------
+
+
+-- create stage
+    drop stage s3_customer_stream;
+    create stage s3_customer_stream 
+        url = 's3://my-s3-data-lake/customer_stream/' 
+        comment = 'this customer csv data with auto-refresh true';
+
+    list @s3_customer_stream;
+
+     -- create external table with auto refresh flag true
+    create or replace external TABLE customer_stream (
+        CUST_KEY varchar AS (value:c1::varchar),
+        NAME varchar AS (value:c2::varchar),
+        ADDRESS varchar AS (value:c3::varchar),
+        NATION_KEY varchar AS (value:c4::varchar),
+        PHONE varchar AS (value:c5::varchar),
+        ACCOUNT_BALANCE varchar AS (value:c6::varchar),
+        MARKET_SEGMENT varchar AS (value:c7::varchar),
+        COMMENT varchar AS (value:c8::varchar)
+    )
+    with location=@s3_customer_stream
+    auto_refresh = true
+    file_format = (format_name = csv_ff)
+;
+
+// use show function to get the arn
+show external tables;
+
+//Now add notification this ARN in notification via AWS console
+
+    -- check how many records we hae
+    select count(*) from customer_stream; -- ? records
+
+    -- check the history function
+    select * from table(information_schema.EXTERNAL_TABLE_FILES(table_name=>'customer_stream'));
+
+    -- add 5 more files 
+        
+            -- check file count within stage
+            list @s3_customer_stream;
+            
+            -- add more files & check list
+            list @s3_customer_stream;
+            
+            -- check record count
+            select count(*) from customer_stream; -- ? record
+
+            -- run this 
+            alter external table customer_stream refresh;
+
+            -- now records will be added
+            select count(*) from customer_stream; 
+
+ -- if auto ingest is on, you can check the queue and pending files
+ select system$external_table_pipe_status('customer_stream');
+
+ --check the metadata and it will differ from your list command
+select * from table(information_schema.external_table_files(table_name=>'customer_stream'));
+
+select * from table(information_schema.external_table_files(table_name=>'customer_csv_et'));
+
+-- retrieve the metadata stored for all data files referenced by the mytable external table
+ select * from table(information_schema.external_table_file_registration_history(table_name=>'customer_stream'));
+
+
+
+--------------------------------------------------------------
+--Part-4 SQL Scripts — Parquet File Format For External Table
+--------------------------------------------------------------
+
+-- stage with parquet as file format
+create or replace stage s3_etg_customer_parquet_ff 
+    url = 's3://my-s3-data-lake/customer/parquet/' 
+    file_format = (type='parquet' compression='snappy')
+    comment = 'this customer parquet data stage with file format attached with it';
+ 
+    
+-- s3 external stage without any file format attached with it
+create stage s3_etg_customer_parquet 
+    url = 's3://my-s3-data-lake/customer/parquet/' 
+    comment = 'this customer parquet data';  
+
+
+
+    -- lets create external stage in s3
+    drop stage s3_customer_parquet;
+    create stage s3_customer_parquet 
+        url = 's3://my-s3-data-lake/customer/parquet/' 
+        comment = 'this customer parquet data';
+
+    list @s3_customer_parquet;
+
+    desc stage s3_customer_parquet;
+
+
+
+    -- following will give only json value
+    -- you can see the column header is $1
+    select * from  @s3_etg_customer_parquet_ff;
+    
+    -- get all the file names
+    select metadata$filename from @s3_etg_customer_parquet_ff;
+    
+    -- value will not work in this approach as we have not created an external table ...value works only when you have created an external table
+    select value, metadata$filename from @s3_etg_customer_parquet_ff;
+    
+    -- as the external stage has file format associated with it. hence we can use $ sign
+    select $1:CUSTOMER_KEY from @s3_etg_customer_parquet_ff;
+    
+    -- case sensitive 
+    select $1:customer_key from @s3_etg_customer_parquet_ff;
+    
+    -- any other field which does not exist
+    select $1:unknow_key from @s3_etg_customer_parquet_ff;
+    
+    select 
+        $1:CUSTOMER_KEY::varchar,
+        $1:NAME::varchar,
+        $1:ADDRESS::varchar,
+        $1:COUNTRY_KEY::varchar,
+        $1:PHONE::varchar,
+        $1:ACCT_BAL::decimal(10,2),
+        $1:MKT_SEGMENT::varchar,
+        $1:COMMENT::varchar
+    from @s3_etg_customer_parquet_ff;
+
+
+    -- following will throw error as file format is missing
+     create or replace external TABLE customer_par_ff (
+        CUST_KEY varchar AS ($1::varchar)
+    )
+    with location=@s3_etg_customer_parquet_ff;
+
+    --error if you put c1 or c2 stuff
+    create or replace external TABLE customer_par_ff (
+        CUST_KEY varchar AS (value:c1::varchar)
+    )
+    with location=@s3_etg_customer_parquet_ff
+    file_format = (format_name = parquet_ff);
+
+    -- following is the correct approach
+    create or replace external TABLE customer_par_ff (
+        CUST_KEY varchar AS ($1:CUSTOMER_KEY::varchar)
+    )
+    with location=@s3_etg_customer_parquet_ff
+    file_format = (format_name = parquet_ff);
+
+    create or replace external TABLE customer_par_ff (
+        CUST_KEY varchar AS ($1:CUSTOMER_KEY::varchar),
+        NAME varchar AS ($1:NAME::varchar),
+        ADDRESS varchar AS ($1:ADDRESS::varchar),
+        NATION_KEY varchar AS ($1:COUNTRY_KEY::varchar),
+        PHONE varchar AS ($1:PHONE::varchar),
+        ACCOUNT_BALANCE varchar AS ($1:ACCT_BAL::varchar),
+        MARKET_SEGMENT varchar AS ($1:MKT_SEGMENT::varchar),
+        COMMENT varchar AS ($1:COMMENT::varchar)
+    )
+    with location=@s3_etg_customer_parquet_ff
+    file_format = (format_name = parquet_ff);
+
+    
+-----------------------------------------------------------
+--Part-5 SQL Scripts — ORC File Format For External Table
+-----------------------------------------------------------
+
+
+    -- stage with orc as file format
+    CREATE STAGE s3_stg_customer_orc
+    URL = 's3://my-s3-data-lake/customer/orc/' 
+    file_format = orc_ff
+    COMMENT = 'This customer orc data';
+ 
+       
+    --list the stage files
+    list @s3_stg_customer_orc;
+    
+    --desc the stage 
+    desc stage s3_stg_customer_orc;
+    
+    --select orc external stage
+    select * from @s3_stg_customer_orc;
+    
+    
+    create or replace external TABLE customer_orc (
+        CUST_KEY varchar AS ($1:CUSTOMER_KEY::varchar),
+        NAME varchar AS ($1:NAME::varchar),
+        ADDRESS varchar AS ($1:ADDRESS::varchar),
+        NATION_KEY varchar AS ($1:COUNTRY_KEY::varchar),
+        PHONE varchar AS ($1:PHONE::varchar),
+        ACCOUNT_BALANCE varchar AS ($1:ACCT_BAL::varchar),
+        MARKET_SEGMENT varchar AS ($1:MKT_SEGMENT::varchar),
+        COMMENT varchar AS ($1:COMMENT::varchar)
+        )
+    with location=@s3_stg_customer_orc
+    auto_refresh = false
+    file_format = (format_name = orc_ff)
+    ;
+
+    -- lets select the table
+    select * from customer_orc;
+    
+    create or replace materialized view my_mv_on_et as
+    select  CUST_KEY, name, address, nation_key, phone, account_balance, market_segment, comment from customer_orc;
+    
+     select * from my_mv_on_et;
+
+
+-----------------------------------------------------------
+--Part-6 SQL Scripts — Error Handling
+-----------------------------------------------------------
+
+
+-- lets create external stage in s3 with csv format
+create stage s3_customer_error 
+    url = 's3://my-s3-data-lake/customer_with_error/' 
+    comment = 'this customer csv data also having orc and parquet';
+    
+-- desc the stage and validate the definition
+-- and on_error parameters
+desc stage s3_customer_error;
+
+-- lets list the stage to see all the files and path 
+list @s3_customer_error;
+
+
+create or replace external TABLE customer_orc_error (
+     CUST_KEY varchar AS ($1:CUSTOMER_KEY::varchar),
+    NAME varchar AS ($1:NAME::varchar),
+    ADDRESS varchar AS ($1:ADDRESS::varchar),
+    NATION_KEY varchar AS ($1:COUNTRY_KEY::varchar),
+    PHONE varchar AS ($1:PHONE::varchar),
+    ACCOUNT_BALANCE varchar AS ($1:ACCT_BAL::varchar),
+    MARKET_SEGMENT varchar AS ($1:MKT_SEGMENT::varchar),
+    COMMENT varchar AS ($1:COMMENT::varchar)
+  )
+with location=@s3_customer_error
+auto_refresh = false
+file_format = (format_name = orc_ff)
+;
+
+select * from customer_orc_error;
+select count(*) from  customer_orc_error;   
+
+
+
+-- list files
+list @s3_customer_error;
+
+-- check table count
+select count(*) from customer_orc_error;
+
+-- check the registration
+select * from table(information_schema.external_table_file_registration_history(table_name=>'customer_orc_error'));
+
+-- refresh table via alter statement
+alter external table customer_orc_error refresh;
+
+-- metadata history
+select * from table(information_schema.external_table_file_registration_history(table_name=>'customer_orc_error'));
+
+-- check table count
+select count(*) from customer_orc_error;
+select * from customer_orc_error;
+
+    
+select *
+  from table(information_schema.external_table_file_registration_history(
+    start_time=>dateadd('hour',-1,current_timestamp()),
+    table_name=>'customer_orc_error'));
+
+    
+-----------------------------------------------------------
+--Part-7 SQL Scripts — External Table Pipe Status
+-----------------------------------------------------------
+
+
+ select system$external_table_pipe_status('customer_stream');
+
+  select * from 
+  table(
+      information_schema.external_table_files(table_name=>'customer_csv_et')
+      );
+select *
+from table(information_schema.external_table_file_registration_history(table_name=>'customer_csv_et'));
+
+
+-- Retrieve the registration events for external table customer_stream that started within the last hour:
+select *
+  from table(information_schema.external_table_file_registration_history(
+    start_time=>dateadd('hour',-48,current_timestamp()),
+    table_name=>'customer_stream'));
+
+select *
+  from table(information_schema.auto_refresh_registration_history(
+    date_range_start=>to_timestamp_tz('2021-11-01 12:00:00.000 -0700'),
+    date_range_end=>to_timestamp_tz('2021-11-08 12:30:00.000 -0700'),
+    object_type=>'external_table'));
+    
+-- Same as the previous example, but retrieves the billing history for the last 14 days, in 1 day periods:
+select *
+  from table(information_schema.auto_refresh_registration_history(
+    date_range_start=>dateadd('day',-14,current_date()),
+    date_range_end=>current_date(),
+    object_type=>'external_table'));
+
+-- Retrieve the billing history for an external table named myexttable in the active schema in the session for the last 12 hours, in 1 hour periods:
+select *
+  from table(information_schema.auto_refresh_registration_history(
+    date_range_start=>dateadd('hour',-12,current_timestamp()),
+    object_type=>'external_table',
+    object_name=>'customer_csv_et'));
+
+
+
+
+
+
