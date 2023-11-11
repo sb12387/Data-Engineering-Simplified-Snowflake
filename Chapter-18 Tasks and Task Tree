@@ -1,0 +1,457 @@
+﻿------------------------
+--CHAPTER-1 CREATE TASK
+------------------------
+
+create schema ch18;
+
+/* =========================================
+Change the context via SQL statements
+===========================================*/
+--set the context
+	use role sysadmin;
+	use warehouse compute_wh;
+	use database tipsdb;
+	use schema ch18;
+
+
+-- lets create a customer table called customer_dim
+	create or replace table customer_dim(
+		id number,
+		first_name varchar,
+		last_name varchar,
+		date_of_birth date,
+		active_flag boolean,
+		city varchar,
+		insert_time timestamp default current_timestamp ()
+	)
+	comment = 'my customer dimension table';
+	;
+
+	select * from customer_dim;
+-- lets create a sequence object
+	create or replace sequence customer_seq
+		start 2
+		increment 2
+	comment= 'my demo sequence for customer dimension table';
+	
+-- check the sequence object 
+	select * customer_seq.nextval;
+
+-- now create task named task_01
+	create or replace task task_01
+		warehouse = compute_wh
+		schedule = '1 minute'
+			as
+		insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag, city) 
+		values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+
+--~~~~~~~~~~~~~~	
+--Limitations
+--~~~~~~~~~~~~~~
+-- (1) If you try to have more than one SQL statement, task creation will end with error; 
+-- (2) Schedule parameter only takes minutes, it does not support second or hour
+-- (3) The minimum value is 1min and you can not go below this number.
+-- (4) Once task is created, it is in suspended state.
+
+-- Just because we have created a task, does not mean that it will start automatically 
+	select * from customer_dim;
+
+-- Lets show tasks
+	show tasks;
+
+--	each task has a unique task id, owner, warehouse, schedule, predecessor, definition, 
+-- condition (applicable for stream and we will see it later) 
+-- allow overlap (we will see it later)
+--
+--	and status is suspended. We have seen it during cloning excercise under ch-15
+
+-- we can also describe and it also shows the same information for the given task 
+	desc task task_01;
+	
+	
+-- Resume the task and to resume, you need to switch our role
+-- to resume/suspend a task, we need taske execute grant.
+	use role accountadmin;
+	alter task task_01 resume;
+-- alter task task_01 suspend;
+	use role sysadmin;
+	
+-- You can assign execute task to any role and
+-- that role can alter the task to resume or suspend
+	use role accountadmin;
+	grant execute task to role sysadmin; 
+	grant execute task, execute managed task on account to role sysadmin;
+-- We can alter task and change attributes associated with it.
+	alter task task_01 set warehouse = 'etl_wh';
+	alter task task_01 set schedule ='2 minute';
+	
+-- lets clone the task and it works
+	create task task_clone clone task_01;
+-- the task will be suspended and it has to be resumed
+
+	show tasks;
+
+-- ends with error if we give second or hours or non integer value
+-- Invalid schedule was specified. Please refer to the docs on what constitutes a valid schedule.
+	create or replace task task_seconds
+		warehouse = compute_wh
+		schedule = '60 second'
+	as
+	insert into customer_dim values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+    -- Error : Invalid schedule was specified. Please refer to the docs on what constitutes a valid schedule.
+	
+	create or replace task task_hours
+		warehouse = compute_wh
+		schedule = '1 hour'
+	as
+	insert into customer_dim values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+    -- Error : Invalid schedule was specified. Please refer to the docs on what constitutes a valid schedule.
+	
+	create or replace task task_half_min
+		warehouse = compute_wh
+		schedule= '0.5 minute'
+	as
+	insert into customer_dim values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+    -- Error : Invalid schedule was specified. Please refer to the docs on what constitutes a valid schedule.
+	
+	create or replace task task_with_minus
+		warehouse = compute_wh
+		schedule = '-1 minute'
+	as 
+	insert into customer_dim values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+    -- Error : Invalid schedule was specified. Please refer to the docs on what constitutes a valid schedule.
+	
+-- How to check if it is running
+-- task_history() is a table function
+	select * from table (information_schema.task_history()) where name = 'TASK_01' order by scheduled_time;
+	
+--so by now.. we must have a few records available in our customer_dim table
+	select * from customer_dim;
+
+    
+
+
+------------------------
+--CHAPTER-2 TASK IN MIN
+------------------------
+
+
+-- look into sequence number as well as insert time stamp.
+	use role sysadmin;
+	use warehouse compute_wh;
+	use database tipsdb;
+	use schema ch18;
+
+
+-- understand the schedule parameter in create task SQL command
+	create or replace task task_10min
+		warehouse = compute_wh
+		schedule = '10 minute'
+	as
+	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag, city)
+	values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- if an INTERVAL value of 10 is set and the task is enabled at 9:03 AM, then the task runs at 9:13 AM, 9:23 AM, and so on
+
+	create or replace task task_5000min
+		warehouse = compute_wh
+		schedule = '5000 minute'
+	as
+	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag, city)
+	values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+-- drop task task_5000min
+
+-- maximum support number is 8 days
+-- 11520
+
+	create or replace task task_8days_in_min
+		warehouse = compute_wh
+		schedule = '11520 minute'
+	as
+	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag,city)
+	values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- drop task task_8days_in_min
+
+-- change the value to next new number and see the result
+-- Cannot set schedule> 11,520 minutes.
+
+
+show tasks;
+
+
+
+
+------------------------------
+--CHAPTER-3 TASK SCHEDULE CORN
+------------------------------
+
+/*
+#-------- minute (0-59)
+#| ------ hour (0-23)
+#|| ----- day of month (1-31, or L)
+#||| ---- month (1-12, JAN-DEC)
+#|||| --- day of week (0-6, SUN-SAT, or L)
+#|||||
+#|||||
+ *****
+ 
+------------------------------ */
+
+-- You must use the keyword USING CRON
+-- there are total 5 asterisk sign followed by the time zone.
+-- if all the 5 asterisk are no replaced by a numeric values, then the task will run every min
+	create or replace task task_every_min
+		warehouse = compute_wh
+		schedule = 'USING CRON * * * *  SUN America/Los_Angeles'
+	as
+	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag,city)
+	values (customer_seq.nextval, 'F-Name-Cron-Min', 'L-Name', current_date(), TRUE, 'My-City');
+	
+alter task task_every_min resume;
+
+show tasks;
+-- check the task history
+	select * from table(information_schema.task_history()) where name = 'TASK_EVERY_MIN' order by scheduled_time;
+	
+-- if you need it should run every 5th min
+	create or replace task task_every_5th_min
+		warehouse = compute_wh
+		schedule = 'USING CRON 5 * * *  SUN America/Los_Angeles'
+	as
+	insert into customer_dim (id, first_name, last_name, dat_of_birth, active_flag, city)
+	values (customer_seq.nextval, 'F-Name-Cron-5min', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- check the task history
+	select * from table(information_schema.task_history()) where name = 'TASK_EVERY_5TH_MIN' order by scheduled_time;
+
+    alter task task_every_5th_min resume;
+	
+
+-- if you need it should run every 5th min between 9-17Hrs
+	create or replace task task_every_5th_min_9hr_17hr_every
+		warehouse = compute_wh
+		schedule ='USING CRON 5 9-17 * * SUN America/Los_Angeles'
+	as
+	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag,city) 
+	values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+
+    alter task task_every_5th_min_9hr_17hr_every resume;
+	
+-- check the task history
+	select * from table(information_schema.task_history()) where name = 'TASK_EVERY_5TH_MIN_9HR_17HR_EVERY' order by scheduled_time;
+
+
+	
+
+
+
+------------------------------
+--CHAPTER-4 SERVERLESS TASK
+------------------------------
+
+
+
+
+-- Non-existent warehouse COMPUTE_DOES NOT EXIST was specified.
+	create or replace task task_non_existence_wh
+		warehouse = compute_does_not_exist
+		schedule = '1 minute'
+	as
+	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag,city) 
+	values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- Snowflake provided warehousse
+
+	create or replace task task_sf_provided_wh
+		user_task_managed_initial_warehouse_size = 'XSMALL'
+		schedule = '1 minute'
+	as
+	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag,city) 
+	values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- the above one failed, because to use the serverless compute
+-- you must have EXECUTE MANAGED TASK priviledges
+-- so for simplicity, we change the role to accountadmin
+
+-- use role accountadmin;
+-- grant execute task to role sysadmin;
+
+
+
+desc task task_sf_provided_wh;
+show tasks;
+-- when wh is null, it means that this task is managed by sf serverless compute
+
+
+
+﻿---------------------
+--CHAPTER-5 TASK TREE
+---------------------
+
+
+-- warehouse value is case sensitive
+
+	use warehouse compute_wh,
+	use database tipsdb;
+	use schema ch18;
+	
+	create or replace table customer_tree(
+		id integer autoincrement,
+		level varchar,
+		insert_time timestamp default current_timestamp(),
+		first_name varchar,
+		last_name varchar,
+		date_of_birth date,
+		active_flag boolean,
+		city varchar
+	)
+	comment = 'my customer dimension table';
+;
+	
+-- Root task - L1
+	create or replace task parent_task_01
+		warehouse = compute_wh
+		schedule = '5 minute'
+	as
+	insert into customer_tree (level, first_name, last_name, date_of_birth, active_flag, city)
+	values ('Level-1', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- Second level task 12
+	create or replace task child_task_21
+		warehouse = compute_wh
+		AFTER parent_task_01
+	as
+	insert into customer_tree (level, first_name, last_name, date_of_birth, active_flag, city)
+	values ('Level-2-Child-01', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- Second level task L2
+	create or replace task child_task_22
+		warehouse = compute_wh
+		AFTER parent_task_01
+	as
+	insert into customer_tree (level, first_name, last_name, date_of_birth, active_flag, city)
+	values ('Level-2-Child-02', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+-- Level 2 has 2 children.. L11 and L12
+
+-- likewise are creating 2 children under each level-2 tasks
+	create or replace task child_task_31
+		warehouse = compute_wh
+		AFTER child_task_21
+	as
+	insert into customer_tree (level, first_name, last_name, date_of_birth, active_flag, city)
+	values ('Level-3-Child-01', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+	create or replace task child_task_32
+		warehouse = compute_wh
+		AFTER child_task_21
+	as
+	insert into customer_tree (level, first_name, last_name, date_of_birth, active_flag, city)
+	values ('Level-3-Child-02', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+	create or replace task child_task_33
+		warehouse = compute_wh
+		AFTER child_task_22
+	as
+	insert into customer_tree (level, first_name, last_name, date_of_birth, active_flag, city)
+	values ('Level-3-Child-03', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	
+	create or replace task child_task_34
+		warehouse = compute_wh
+		AFTER child_task_22
+	as
+	insert into customer_tree (level, first_name, last_name, date_of_birth, active_flag, city)
+	values ('Level-3-Child-04', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+
+    
+	
+	select * from customer_tree;    
+    
+    alter task parent_task_01 suspend;
+    
+-- Just resume parents and all the nodes within the tree will be automatically resumed
+	show tasks;
+	alter task child_task_21 resume;
+	alter task child_task_22 resume; 
+	alter task child_task_31 resume; 
+	alter task child_task_32 resume; 
+	alter task child_task_33 resume; 
+	alter task child_task_34 resume; 
+	alter task parent_task_01 resume;
+	
+	
+	show tasks;
+	
+	select * from table(information_schema.task_history()) where name = 'PARENT_TASK_01' order by scheduled_time;
+	
+	select * from customer_tree order by insert_time;
+	
+	alter task PARENT_TASK_01 suspend;
+
+
+
+
+
+﻿------------------------
+--CHAPTER-6 TASK WITH SP
+------------------------
+
+
+
+
+
+-- creating a customer table, having a column called task name
+	create or replace table customer_sproc(
+		id integer autoincrement,
+		task_name varchar,
+		insert_time timeştamp default current_timestamp(),
+		first_name varchar,
+		last_name varchar,
+		date_of_birth date,
+		active_flag boolean,
+		city varchar
+		
+	)comment = 'my customer table for task with stored proc demo';
+	
+-- here is my stored procedure with single insert statement.
+	create or replace procedure insert_row_in_customer_sproc()
+		returns boolean
+		language javascript
+		execute as caller
+	as
+	$$
+		sql_insert_command = 'insert into customer_sproc (level, first_name, last_name, date_of_birth, active_flag, city)
+								values ('TASK_WITH_SPROC', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');'
+		result_insert = snowflake.execute(
+		{
+			sqlText: sql_insert_command    
+		});
+		return result_insert;
+	$$
+	;
+	
+-- call stored procedure to check if it runs
+	call insert_row_in_customer_sproc();
+	
+	select * from customer_sproc;
+
+--task calling a stored procedure
+	create or replace task task_with_sproc
+		warehouse = compute_wh
+		schedule = '1 minute'
+	as
+	call insert_row_in_customer_sproc();
+	
+-- resume the task so it becomes functional
+	alter task task_with_sproc resume;
+	
+-- check how task entry looks like
+	show tasks like 'TASK_WITH_SPROC';
+	
+-- lets check task history table function
+	select * from table (information_schema.task_history())
+	where name='TASK_WITH_SPROC'
+	order by scheduled_time;
+
