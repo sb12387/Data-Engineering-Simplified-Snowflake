@@ -32,6 +32,7 @@ use role sysadmin;
     
     drop table if exists my_table;
     create table my_table (
+      id int autoincrement,
       num number,
       num10_1 number(10,1),
       decimal_20_2 decimal(20,2),
@@ -126,7 +127,7 @@ use role sysadmin;
 
     -- run show tables command
     show tables;
-
+    
 // ====================================================================
 -- Object Identifier
   create table "my table" (my_field string);
@@ -135,7 +136,7 @@ use role sysadmin;
   
   show tables;
   desc table "my table";
-  desc table "MY TABLE" ;
+  desc table "MY TABLE";
   
   
 // ====================================================================
@@ -143,6 +144,8 @@ use role sysadmin;
     create table my_ctas as select * from my_db.my_schema.my_table;
     
     select * from my_ctas;
+    desc table my_table;
+    desc table my_ctas; --default sequence not copied
 
 -- Load data using select as statement
     insert into my_ctas (num ,num10_1, decimal_20_2 ,numeric,int ,integer) 
@@ -183,9 +186,10 @@ use role sysadmin;
 
 // =========================================================
 
-  -- put file:///tmp/ch07.csv @my_stg;
-  
-  list @my_stg;
+   create stage my_stg;
+
+  -- put file:///tmp/ch07.csv @my_stg;   --into internal named stage for mac
+  -- put file://C:\Users\saubhaga\Downloads\Snowflake\Sample_Files\ch07.csv @my_stg;   --for windows 
   
   /* sample data
     100,22.2,33.33,123456789,987654321,12112
@@ -194,7 +198,7 @@ use role sysadmin;
   */
 
     -- list the stage
-    list @ch7_stg;
+    list @my_stg;
     
     -- lets view the data first
     create or replace file format my_format type = 'csv' field_delimiter = ',';
@@ -229,7 +233,7 @@ use role sysadmin;
     create table my_ctas_big_table as select * from "SNOWFLAKE_SAMPLE_DATA"."TPCH_SF100"."ORDERS";
     
     -- change the time travel to 30 days;
-    alter table my_ctas_big_table set data_retention_time_in_days=0;
+    alter table my_ctas_big_table set data_retention_time_in_days=30; 
     
     -- lets check the table before update
     select * from my_ctas_big_table limit 10;
@@ -241,7 +245,7 @@ use role sysadmin;
     update my_ctas_big_table set O_ORDERSTATUS ='o' where O_ORDERSTATUS = 'O';
 
     --How Time Travels Works
-    select  count(*) from my_ctas_big_table before (statement => '01afb1ba-0000-7914-0000-0005f7de4af5') -- COpy previous query_id
+    select  count(*) from my_ctas_big_table before (statement => '01b6dae1-010a-54d5-0000-00087557a639') -- Copy previous query_id
     where  O_ORDERSTATUS = 'O';
     
     select  count(*) from my_ctas_big_table where  O_ORDERSTATUS = 'P';
