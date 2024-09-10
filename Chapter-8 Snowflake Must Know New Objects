@@ -13,22 +13,25 @@ create schema my_schema_08 comment = 'Schema for chapter-8';
 use database my_db_08;
 use schema my_schema_08;
 
-// this is how we can use it
+// this is how we can use it -- by default it is not ordered
 create or replace sequence seq_01 start = 1 increment = 1 comment='This is a trial sequence'; 
 create or replace sequence seq_02 start = 1 increment = 2 comment='This is a trial sequence';
 create or replace sequence seq_03 start = 0 increment = -2 comment='This is a trial sequence with negative increment';
+create or replace sequence seq_04 start = 1 increment = 1 order comment='This is a trial order sequence'; 
 
-create or replace table my_tbl_01 (i integer);
+MY_DB_08.MY_SCHEMA_08
 
 //how to get next value
-select seq_01.nextval, seq_02.nextval, seq_03.nextval;
+select seq_01.nextval, seq_02.nextval, seq_03.nextval, seq_04.nextval;
 
-﻿//in table field]
+
+//in table field]
 create or replace table my_tbl_02 (
 		pk int autoincrement,
 		seq1 int default seq_01.nextval, 
 		seq2 int default seq_02.nextval, 
 		seq3 int default seq_03.nextval, 
+        seq4 int default seq_04.nextval, 
 		msg string
 	);
 	
