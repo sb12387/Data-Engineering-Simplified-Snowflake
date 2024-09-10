@@ -48,6 +48,7 @@ use schema CH09;
 --------------------------
 
 -- you can create named stages and then list them using list command
+    create stage STG01;
 	show stages;
 	list @STG01;
 	
@@ -59,7 +60,6 @@ use schema CH09;
 	
 	show stages like '%s3%';
 	-- if it has credential. it will show
-
 
 
 
@@ -143,13 +143,12 @@ use schema CH09;
 -- 2. account usage schema and stage views.
 
 	use role accountadmin;
-
+    
 -- you can not load data to external named stage
 
 	show stages like 'TIPS_S3_EXTERNAL_STAGE';
 	list @TIPS_S3_EXTERNAL_STAGE;
-	put file:///tmp/ch09-data/test.csv @TIPS_S3_EXTERNAL_STAGE;
-
+	put file:///tmp/ch09-data/test.csv @TIPS_S3_EXTERNAL_STAGE; --not allowed
 
 
 
@@ -209,17 +208,17 @@ use schema CH09;
 -- Once data is loaded, you can see the load_history table to see the history
 
 -- if you try to load the same file again and again, it will not load the data 
--- copy + tables have metdata which remembers last 64 days of data load history
+-- copy + tables have metadata which remembers last 64 days of data load history
 
 -- you can use option
 -- "FORCE = TRUE | FALSE"
 -- to re-load the same data file, by default this flag is false.
--- if you truncate or delete all the data, without force=true, it does no load data.
+-- if you truncate or delete all the data, without force=true, it does not load data.
 
 		copy into customer_parquet_ff
 		from @%customer_parquet_ff/customer.snappy. parquet
 		force=true;
--- making it true may cause duplicdate data set.
+-- making it true may cause duplicate data set.
 	
 		select count(*) from customer_parquet_ff;
 	
@@ -546,9 +545,10 @@ use schema CH09;
     select count(*) from customer_performance_csv_gzip;
 	
 	list @stg_performance/csv/64mb/gzip;
-		copy into customer_performance_csv_gzip from
-		@stq_performance/csv/64mb/gzip
-		file_format = (type=csv compression= 'gzip' );
+    
+	   copy into customer_performance_csv_gzip from
+	   @stq_performance/csv/64mb/gzip
+	   file_format = (type=csv compression= 'gzip' );
 
     --------------------------------------------------
     Parquet None Performance
@@ -556,6 +556,23 @@ use schema CH09;
      use warehouse PARQUET_NONE_VWH_MEDIUM;
 
     	drop table customer_performance_parquet_none;
+
+        create table customer_performance_parquet_none as select 
+		  C_CUSTKEY as CUST_KEY,
+		  C_NAME as NAME,
+		  C_ADDRESS as ADDRESS,
+		  C_NATIONKEY as NATION_KEY,
+		  C_PHONE as PHONE,
+		  C_ACCTBAL AS ACCOUNT_BALANCE,
+		  C_MKTSEGMENT as MARKET_SEGMENT,
+		  C_COMMENT as COMMENT
+	    from SNOWFLAKE_SAMPLE_DATA.TPCH_SF10.CUSTOMER limit 1;
+
+	    delete from customer_performance_parquet_none;
+
+        select count(*) from customer_performance_parquet_none;
+
+        list @stg_performance/parquet/64mb/none;
 
 		copy into customer_performance_parquet_none from ( 
 			select
@@ -569,13 +586,8 @@ use schema CH09;
 				$1 COMMENT::varchar
 			from @stg_performance/parquet/64mb/none
 		)
-		file_format (type=parquet compression='none')
+		file_format (type=parquet compression='none');
     
-	delete from customer_performance_parquet_none;
-
-    select count(*) from customer_performance_parquet_none;
-	
-	list @stg_performance/parquet/64mb/none;
 		copy into customer_performance_parquet_none from
 		@stq_performance/parquet/64mb/none
 		file_format = (type=parquet compression= 'none' );   
@@ -586,6 +598,23 @@ use schema CH09;
      use warehouse PARQUET_SNAPPY_VWH_MEDIUM;
 
     	drop table customer_performance_parquet_snappy;
+
+        create table customer_performance_parquet_snappy as select 
+		  C_CUSTKEY as CUST_KEY,
+		  C_NAME as NAME,
+		  C_ADDRESS as ADDRESS,
+		  C_NATIONKEY as NATION_KEY,
+		  C_PHONE as PHONE,
+		  C_ACCTBAL AS ACCOUNT_BALANCE,
+		  C_MKTSEGMENT as MARKET_SEGMENT,
+		  C_COMMENT as COMMENT
+	    from SNOWFLAKE_SAMPLE_DATA.TPCH_SF10.CUSTOMER limit 1;
+
+        delete from customer_performance_parquet_snappy;
+
+        select count(*) from customer_performance_parquet_snappy;
+	
+	    list @stg_performance/parquet/64mb/snappy;
 
 		copy into customer_performance_parquet_snappy from ( 
 			select
@@ -601,11 +630,6 @@ use schema CH09;
 		)
 		file_format (type=parquet compression='snappy')
     
-	delete from customer_performance_parquet_snappy;
-
-    select count(*) from customer_performance_parquet_snappy;
-	
-	list @stg_performance/parquet/64mb/snappy;
 		copy into customer_performance_parquet_snappy from
 		@stq_performance/parquet/64mb/snappy
 		file_format = (type=parquet compression= 'snappy' ); 
@@ -623,7 +647,7 @@ use schema CH09;
 		C_NATIONKEY as NATION_KEY,
 		C_PHONE as PHONE,
 		C_ACCTBAL AS ACCOUNT_BALANCE,
-		C_MKTSEGMENT as MARKET SEGMENT,
+		C_MKTSEGMENT as MARKET_SEGMENT,
 		C_COMMENT as COMMENT
 	from SNOWFLAKE_SAMPLE_DATA.TPCH_SF10.CUSTOMER limit 1; 
 	delete from customer_4node;
@@ -636,7 +660,7 @@ use schema CH09;
 		C_NATIONKEY as NATION_KEY,
 		C_PHONE as PHONE,
 		C_ACCTBAL AS ACCOUNT_BALANCE,
-		C_MKTSEGMENT as MARKET SEGMENT,
+		C_MKTSEGMENT as MARKET_SEGMENT,
 		C_COMMENT as COMMENT
 	from SNOWFLAKE_SAMPLE_DATA.TPCH_SF10.CUSTOMER limit 1;
 	delete from customer_8node;
@@ -649,7 +673,7 @@ use schema CH09;
 		C_NATIONKEY as NATION_KEY,
 		C_PHONE as PHONE,
 		C_ACCTBAL AS ACCOUNT_BALANCE,
-		C_MKTSEGMENT as MARKET SEGMENT,
+		C_MKTSEGMENT as MARKET_SEGMENT,
 		C_COMMENT as COMMENT
 	from SNOWFLAKE_SAMPLE_DATA.TPCH_SF10.CUSTOMER limit 1;
 	delete from customer_16node;
@@ -711,14 +735,3 @@ copy into customer_16node from (
 		from @stg_performance/demo/
 	)
 file_format (type=parquet compression= 'snappy');
-
-
-
-
-
-
-
-
-
-
-
