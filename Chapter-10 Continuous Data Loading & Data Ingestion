@@ -1,4 +1,20 @@
+//----------------------------------------------
+//Set the context
+//----------------------------------------------
+
+use role sysadmin;
+use database tipsdb; create schema ch10;
+use schema ch10;
+use warehouse ch10_demo_wh;
+
+alter session set query_tag =' Chapter-10';
+//=============================================
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 --Step1)-
+-- lets create our table called my_customer
+--first before we apply auto ingest (delta file)
 drop table my_customer;
     create or replace table my_customer (
         CUST_KEY NUMBER(38,0),
@@ -15,10 +31,16 @@ drop table my_customer;
     select * from my_customer;
     
 --Step2)-
+--lets create a simple csv file format as we are using csv as delta file
+--we have also seen that copy command needs a file format
+
    create or replace file format csv_ff type = 'csv'
     field_optionally_enclosed_by = '\042';
     
+
 --Step3)-
+-- create an internal stage
+    
 -- before check if stg exist and has data
     show stages like '%_010%';
     
@@ -31,29 +53,35 @@ drop table my_customer;
     desc stage stg_010;
 
 
-    -- Step-04
+-- Step-04
     -- lets put data into internal stage
     
     -- first we will load a history data to run and validate our copy command.
     -- put file:///tmp/ch-10/history/customer-history.csv @stg_010/history auto_compress=false;
-    
+
+    -- then we will put additional delta file under delta sub folder
+    -- put file:///tmp/ch-10/history/customer_101.csv @stg_010/delta auto_compress=false;
+    -- put file:///tmp/ch-10/history/customer_102.csv @stg_010/delta auto_compress=false;
+    -- put file:///tmp/ch-10/history/customer_103.csv @stg_010/delta auto_compress=false;   
 
     list @stg_010/ pattern='.*.csv';
     
-
-    -- ***********************************
-    -- Step-05
-    -- load into table
-    
+-- ***********************************
+-- Step-05
+    -- load into table    
     copy into my_customer from @stg_010/history;
 
+    -- review the table data and table count
+    select count(*) from my_customer;
     select * from my_customer;
 
-    -- lets remove the data from stage to make sure we save the cost
+   -- since the data is loaded, and it looks good.
+   -- lets remove the data from stage to make sure we save the cost
     remove @stg_010/history/customer-history.csv ;
 
     
-    -- Step-06
+-- ***********************************    
+-- Step-06
     -- create a pipe object & understand its construct. 
     drop pipe my_pipe_10;
     create or replace pipe my_pipe_10 
@@ -64,33 +92,63 @@ drop table my_customer;
     desc pipe my_pipe_10;
 
     -- once the pipe object is created it has to be resumed.
+
+    -- before we resume, lets check if delta folder has nay data or not
+    list @stg_010/delta;
+    
+    -- resume the pipe
     alter pipe my_pipe_10 refresh;
     -- as soon as you resume the pipe it becomes active.
     
-    -- Step-07
+-- ***********************************    
+-- Step-07
     -- monitor the pipe using system function called pipe_status
 
     select SYSTEM$PIPE_STATUS('my_pipe_10');
 
-    -- there is a table function called validate_pipe_load to check the load history
-select * from table(validate_pipe_load(
+    -- there is a table function called validate_pipe_load to check the load history and will capture file details if it fails while loading into pipe
+    select * from table(validate_pipe_load(
       pipe_name=>'my_pipe_10',
       start_time=>dateadd(hour, -1, current_timestamp())));
 
-      -- what happens if we alter and pause the pipe
-    alter pipe my_pipe_10 set pipe_execution_paused = false;
 
-    -- modify after    
-    alter pipe my_pipe_10 refresh prefix='/customer_10*' modified_after='2021-11-01T13:56:46-07:00';
+      
+-- *********************************** 
+-- Step-08
+    -- lets load delta csv files under internal stage    
+    
+    --now lets check the table before loading the delta
+    select count(*) from my_customer;
 
-    -- Step-08
+    -- and understand the python code
     -- then we will put additional delta file under delta sub folder.
     -- put file:///tmp/ch-10/history/customer_101.csv @stg_010/delta auto_compress=false; 
     -- put file:///tmp/ch-10/history/customer 102.csv @stg_010/delta auto compress=false:
     -- put file:///tmp/ch-10/history/customer 103.csv @stg_010/delta auto compress=false:
 
+    --lets list delta
+    list @Stg_010/delta/;
+
     -- pipe will not load data unless notification is available in snowflake queue
     -- via python code
+
+
+    -- what happens if we alter and pause the pipe
+    alter pipe my_pipe_10 set pipe_execution_paused = false;
+
+    --lets check the status
+    select SYSTEM$PIPE_STATUS('my_pipe_10');
+
+    --resume at
+    alter pipe my_pipe_10 refresh;
+
+    --lets check the status
+    select SYSTEM$PIPE_STATUS('my_pipe_10');
+
+    -- modify after    
+    alter pipe my_pipe_10 refresh prefix='/customer_10*' modified_after='2021-11-01T13:56:46-07:00';
+
+    
 
 --Monitor History
 
@@ -110,7 +168,7 @@ from "SNOWFLAKE"."ACCOUNT_USAGE"."METERING_HISTORY"
 group by service_type;
 
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------
 -- Unnecessary code given in site
 ---------------------------------------------------------------------------------------------------------------
 
