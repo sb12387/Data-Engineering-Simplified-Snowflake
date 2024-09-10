@@ -4,8 +4,6 @@ create schema my_schema_11;
 use schema my_db_11;
 
 
-
-
 -----------------------------------------------------------
 --Part-1 SQL Scripts — External Table For CSV Files
 -----------------------------------------------------------
@@ -34,7 +32,9 @@ use schema my_db_11;
         null_if = ('\\N');
         
         
+     -- lets query the external stage without creating any table
      -- select external stage using $ notation
+     -- and this covered in chapter-7 and chapter-9
      select t.$1, t.$2, t.$3,t.$4, t.$5, t.$6 , t.$7, t.$8 
         from 
      @s3_customer_csv (file_format => 'csv_ff') t; 
@@ -45,8 +45,9 @@ use schema my_db_11;
     @s3_customer_csv (file_format => 'csv_ff') t; 
 
     // it will appear null, so be careful with such column.
-     
-create or replace external TABLE customer_csv_et (
+
+     -- now create an external table using external stage
+    create or replace external TABLE customer_csv_et (
         CUST_KEY varchar AS (value:c1::varchar),
         NAME varchar AS (value:c2::varchar),
         ADDRESS varchar AS (value:c3::varchar),
@@ -56,10 +57,12 @@ create or replace external TABLE customer_csv_et (
         MARKET_SEGMENT varchar AS (value:c7::varchar),
         COMMENT varchar AS (value:c8::varchar)
     )
-with location=@s3_customer_csv
-auto_refresh = false
-file_format = (format_name = csv_ff)
-;
+    with location=@s3_customer_csv
+    auto_refresh = false
+    file_format = (format_name = csv_ff)
+    ;
+
+show external tables;
 
 -- lets see the extra value column and it is available in json format.
 select * from customer_csv_et;
@@ -90,11 +93,10 @@ create or replace external TABLE customer_csv_et_dummy (
 
     select * from customer_csv_et_dummy;
 
-    desc external_table customer_csv_et type='column';
-    desc external_table customer_csv_et type='stage';
+    desc external_table customer_csv_et type='column';  -- will list all the column name in the external table including the extra "value" column
+    desc external_table customer_csv_et type='stage';   -- Default one. will list all the stage table properties like type, delimiter etc
 
 -- clean stuff
-
 
 -----------------------------------------------------------
 --Part-2 SQL Scripts — Table Partition
@@ -143,7 +145,7 @@ create or replace external TABLE customer_csv_et_dummy (
     ;
 
 
-    // to create no partition column to see the scan data set
+    // also to create no partition column to see the scan data set
     create or replace external TABLE customer_no_partition_et (
         CUST_KEY varchar AS (value:c1::varchar),
         NAME varchar AS (value:c2::varchar),
@@ -157,6 +159,7 @@ create or replace external TABLE customer_csv_et_dummy (
     with location=@s3_customer_csv_partition
     file_format = (format_name = csv_ff)
     ;
+    
     -- this updates the metadata --an external table doesn't get refreshed automatically and this will ensure all files in external table gets registered with metadata
     alter external table customer_partition_et refresh;
     alter external table customer_csv_et refresh;
@@ -177,12 +180,13 @@ create or replace external TABLE customer_csv_et_dummy (
 -----------------------------------------------------------
 
 
--- create stage
+    -- create stage
     drop stage s3_customer_stream;
     create stage s3_customer_stream 
         url = 's3://my-s3-data-lake/customer_stream/' 
         comment = 'this customer csv data with auto-refresh true';
 
+    --list files
     list @s3_customer_stream;
 
      -- create external table with auto refresh flag true
@@ -201,7 +205,7 @@ create or replace external TABLE customer_csv_et_dummy (
     file_format = (format_name = csv_ff)
 ;
 
-// use show function to get the arn
+// use show function to get the ARN
 show external tables;
 
 //Now add notification this ARN in notification via AWS console
@@ -266,8 +270,10 @@ create stage s3_etg_customer_parquet
         url = 's3://my-s3-data-lake/customer/parquet/' 
         comment = 'this customer parquet data';
 
+    -- List the files
     list @s3_customer_parquet;
 
+    -- describe the stage to validate the file format
     desc stage s3_customer_parquet;
 
 
@@ -487,9 +493,3 @@ select *
     date_range_start=>dateadd('hour',-12,current_timestamp()),
     object_type=>'external_table',
     object_name=>'customer_csv_et'));
-
-
-
-
-
-
