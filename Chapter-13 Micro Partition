@@ -9,7 +9,7 @@ Change the context via SQL statements
 use role sysadmin;
 use warehouse compute_wh;
 use database tipsdb;
-use schema ch13;
+create schema ch13; use schema ch13;
 
 // Step-1
 // Create a table having no cluster key 
@@ -58,9 +58,11 @@ use schema ch13;
 //let me populat data and here I am fast forwarding it 
 //as populating 5M in each table taks sometime. 
 
-
-
-
+create or replace table t1_no_cluster as select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF100.ORDERS;
+create or replace table t2_order_dt as select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF100.ORDERS;
+create or replace table t3_order_priority as select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF100.ORDERS;
+alter table t2_order_dt cluster by (o_orderdate);
+alter table t3_order_priority cluster by (o_orderpriority);
 
 
 //Step-3
@@ -83,16 +85,16 @@ use schema ch13;
 
 //Step-6
 // lets validate our 1st query in our default warehouse where order priority is medium.
-	select * from t1_no_cluster where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10;
-	select * from t1_order_dt where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10;
-	select * from t1_order_priority where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10;
+	select * from t1_no_cluster where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> '2020-01-01 08:08:49.426 -0800' limit 10;
+	select * from t2_order_dt where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> '2020-01-01 08:08:49.426 -0800' limit 10;
+	select * from t3_order_priority where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> '2020-01-01 08:08:49.426 -0800' limit 10;
 
 ﻿//Step-7
 ﻿//=========
 -- choose a different wh and resume it to make sure we focus only on query execution time
 	use warehouse wh_01;
 	alter warehouse wh_01 RESUME IF SUSPENDED;
-	select from t1_no_cluster where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp() > 2020-01-0 08:08:49.426 -0800 limit 10; 
+	select * from t1_no_cluster where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> '2020-01-01 08:08:49.426 -0800' limit 10; 
 -- has no cluster key
 	
 //Step-8
@@ -100,7 +102,7 @@ use schema ch13;
 -- choose a different wh and resume it to make sure we focus only on query execution time
 	use warehouse wh_02;
 	alter warehouse wh_02 RESUME IF SUSPENDED;
-	select from t2_order_dt where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10; 
+	select * from t2_order_dt where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> '2020-01-01 08:08:49.426 -0800' limit 10; 
 -- has order dt as cluster key
 
 //Step-9
@@ -108,7 +110,7 @@ use schema ch13;
 -- choose a different wh and resume it to make sure we focus only on query execution time
 	use warehouse wh_03;
 	alter warehouse wh_03 RESUME IF SUSPENDED;
-	select from t3_order_priority where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> 2020-01-01 08:08:49.426 -0800 limit 10 
+	select * from t3_order_priority where O_ORDERPRIORITY = '3-MEDIUM' and current_timestamp()> '2020-01-01 08:08:49.426 -0800' limit 10;
 -- has order priority as cluster key
 
 -- now lets see the query history...
@@ -122,11 +124,11 @@ use schema ch13;
 
     use role sysadmin;
     use database tipsdb; 
-    use schema ch13;
+    use schema ch13;]
 
 --changing the cluster by key
 --t3_order_priority has order priority to order date 
-	alter table t3_order_priority cluster by (0_ORDERDATE);
+	alter table t3_order_priority cluster by (O_ORDERDATE);
 	show tables;
 	
 -- drop cluster key
@@ -148,7 +150,7 @@ use schema ch13;
 	alter table t2_order_dt resume recluster ;
 
 -- it will throw an error in case we want to re-clustering for the no cluster table
-	alter table t1_no_cluster resume recluster :
+	alter table t1_no_cluster resume recluster;
 
 
 
@@ -215,7 +217,7 @@ use role sysadmin;
 use database tipsdb;
 use schema ch13;
 
-select system$clustering information('t2_order_dt', '(o_orderdate)');
+select system$clustering_information('t2_order_dt', '(o_orderdate)');
 
 
 -----------------------------
@@ -231,7 +233,3 @@ use schema ch13;
 
 
 --snowflake suggest either use clustering depth or clustering information.
-
-
-
-
