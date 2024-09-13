@@ -43,14 +43,14 @@ Change the context via SQL statements
 	where table_name = 'TT_3_DAYS';
 	
 -- load data from a sample data set
-	insert into tt_3_days select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF1888.ORDERS limit 1000000;
--- 01a151b6-0088-6425-8001-3cfe80019b42
+	insert into tt_3_days select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF1000.ORDERS limit 1000000;
+-- 01b7011e-030a-61f3-0008-755700026296
 
 --check the data
 	select count(*) from tt_3_days;
 
 -- see first few records
-	select from tt_3_days limit 10;
+	select * from tt_3_days limit 10;
 	
 -- lets change few order key and change the status from High to Urgent
 select * from tt_3_days;
@@ -62,8 +62,9 @@ select * from tt_3_days;
 -- update with order key small than a number
 	select count(*) from tt_3_days where O_ORDERKEY < 10000000 and O_ORDERPRIORITY <> '1-URGENT';
 	update tt_3_days set O_ORDERPRIORITY = '1-URGENT' where O_ORDERKEY < 10000000 and O_ORDERPRIORITY <> '1-URGENT';
---01b0276d-0000-7e18-0005-f7de0003e3aa
---518 records updated
+--01b70121-030a-5ef0-0008-7557000350d2
+--number of rows updated	number of multi-joined rows updated
+--    1686	                   0
 
 
 
@@ -75,32 +76,32 @@ select * from tt_3_days;
 
 --now lets drop the same records
 	delete from tt_3_days where O_ORDERKEY < 10000000 and O_ORDERPRIORITY = '1-URGENT';
--- 650 records dropped
--- 01b0277c-0000-7e3d-0005-f7de0003f3b2
--- now at this stage the record is 650 less on total count
+-- 2120 records dropped
+-- 01b70123-030a-5ef0-0008-7557000350de
+-- now at this stage the record is 2120 less on total count
 
-select count(*) from tt_3_days; -- 999,350
+select count(*) from tt_3_days; -- 997880
 
 -- so what are the table size before this stmt
-	select count(*) from tt_3_days before (statement => '01b0277c-0000-7e3d-0005-f7de0003f3b2'); 
+	select count(*) from tt_3_days before (statement => '01b70123-030a-5ef0-0008-7557000350de'); 
 
-	select count(*) from tt_3_days at(statement => '01b0277c-0000-7e3d-0005-f7de0003f3b2'); 
+	select count(*) from tt_3_days at(statement => '01b70123-030a-5ef0-0008-7557000350de'); 
 
 -- we can join and find what all records dropped
 -- following operation will be very expensine, so I will go to simpler approach
 	select tt_1st_update.O_ORDERKEY, tt_1st_update.O_ORDERPRIORITY, tt_2nd_delete.O_ORDERPRIORITY 
-	from
-	tt_3_days before (statement => '01b0276d-0000-7e18-0005-f7de0003e3aa') tt_1st_update join
-	tt_3_days before (statement => '01b0277c-0000-7e3d-0005-f7de0003f3b2') tt_2nd_delete
-	on tt_1st_update.O_ORDERKEY = tt_2nd_delete.O_ORDERKEY and tt_1st_update.O_ORDERPRIORITY <> tt_2nd_delete.O_ORDERPRIORITY; 
+	from tt_3_days before (statement => '01b70121-030a-5ef0-0008-7557000350d2') tt_1st_update 
+    join tt_3_days before (statement => '01b70123-030a-5ef0-0008-7557000350de') tt_2nd_delete
+	on tt_1st_update.O_ORDERKEY = tt_2nd_delete.O_ORDERKEY 
+    and tt_1st_update.O_ORDERPRIORITY <> tt_2nd_delete.O_ORDERPRIORITY; 
 	
 -- minus operation
-	select * from tt_3_days before (statement => '01b0277c-0000-7e3d-0005-f7de0003f3b2')
+	select * from tt_3_days before (statement => '01b70123-030a-5ef0-0008-7557000350de')
 	minus
 	select * from tt_3_days;
 	
 -- not exist query approach
-	select * from tt_3_days before (statement => '01b0277c-0000-7e3d-0005-f7de0003f3b2') tt_past 
+	select * from tt_3_days before (statement => '01b70123-030a-5ef0-0008-7557000350de') tt_past 
 	where not exists
 	(select 1
 		from tt_3_days tt_now
@@ -110,7 +111,7 @@ select count(*) from tt_3_days; -- 999,350
 -- you can also use offset key word
 
 --The following query selects historical data from a table as of 300 sec ago:
-	select count(*) from tt_3_days at (offset => -60*5);
+	select count(*) from tt_3_days at (offset => -60*10);
 	
 --The following query selects historical data from a table as of the date and time represented by the specified timestamp; 
 	select count(*) from tt_3_days at (timestamp => 'Mon, 28 Dec 2021 87:51:03.389 -0800'::timestamp_tz); 	--100000
@@ -224,7 +225,7 @@ Lets create a transient and temp table and see how it works
 	;
 	
 // it ends with error
-//SQL compilation error: Exceeds maximum allowable retention time (90).
+//SQL compilation error: Exceeds maximum allowable retention time (90 days).
 
 
 
@@ -237,7 +238,7 @@ Lets create a transient and temp table and see how it works
 
 
 //table with 3 days retention
-	create or replace table time_travel_undrop (
+	create or replace table time_travel_undrop_z (
 		o_orderkey number(38,8),
 		o_custkey number (38,0), 
 		o_orderstatus varchar(1), 
@@ -248,7 +249,7 @@ Lets create a transient and temp table and see how it works
 		o_shippriority number (38,0), 
 		o_comment varchar(79)
 	)
-	data_retention_time_in_days=3
+	data_retention_time_in_days=0
 	;
 	
 	
@@ -266,6 +267,9 @@ Lets create a transient and temp table and see how it works
 -- now I can query it again;
 	select * from time_travel_undrop;
 
+create or replace table time_travel_undrop_y as select * from time_travel_undrop;
+select * from time_travel_undrop_y; --creates retention_time=1 (the default value) and not 3
+show tables like 'time_travel_undrop%';
 
 /*
 ==================================================
@@ -276,7 +280,7 @@ Lets try it with database and schema level objects
 --Chagne role
 	use role sysadmin;
 	
-- create a table
+-- create a table
 	create or replace database tt_db_undrop;
 	create or replace schema tt_schema_undrop;
 	create or replace table tt_undrop (field1 varchar());
@@ -354,31 +358,31 @@ Lets try it with database and schema level objects
 	
 -- lets perform some delete/update & insert statements
 
-	delete from tt_before_clone where O_ORDERPRIORITY = '5-LOW' ; --01b027a3-0000-7e18-0005-f7de0003e55a
-	select * from tt_before_clone; --77 rows (23 records deleted)
+	delete from tt_before_clone where O_ORDERPRIORITY = '5-LOW' ; --01b7015b-030a-5ef0-0008-7557000352c2
+	select * from tt_before_clone; --80 rows (20 records deleted)
 	
 -- lets update few records
-	update tt_before_clone set O_ORDERSTATUS = 'X' where O_ORDERPRIORITY='3-MEDIUM'; --01b027a4-0000-7e3d-0005-f7de0003f562
-	select * from tt_clone_base; -- 77 rows, 20 records updated
+	update tt_before_clone set O_ORDERSTATUS = 'X' where O_ORDERPRIORITY='3-MEDIUM'; --01b7015c-030a-61eb-0008-75570001e632
+	select * from tt_before_clone; -- 80 rows, 23 records updated
 	
 -- lets insert 50 records
 	insert into tt_before_clone select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF1000.ORDERS where O_ORDERPRIORITY= '5-LOW' limit 50; 
--- 01b027a5-0000-7e3d-0005-f7de0003f57a
+-- 01b7015d-030a-61f3-0008-7557000264de
 
-	select * from tt_before_clone; -- 127 rows
+	select * from tt_before_clone; -- 130 rows
 	
 -- we can use clone feature to create a back or snapshot
-	create or replace table tt_after_clone clone tt_before_clone before (statement => '01b027a5-0000-7e3d-0005-f7de0003f57a');
+	create or replace table tt_after_clone clone tt_before_clone before (statement => '01b7015c-030a-61eb-0008-75570001e632');
 	
 -- the retention period is also cloned
 	show tables like 'tt%clone%%';
 
-	select count(*) from tt_before_clone; -- 127 
-	select count(*) from tt_after_clone; -- 77
+	select count(*) from tt_before_clone; -- 130 
+	select count(*) from tt_after_clone; -- 80
 	
 --time travel data is not available to the cloned table 
-	select * from tt_before_clone before (statement => '01b027a3-0000-7e18-0005-f7de0003e55a');  -- should return 100 rows
-	select * from tt_after_clone before (statement => '01b027a3-0000-7e18-0005-f7de0003e55a');	-- this statement fails
+	select * from tt_before_clone before (statement => '01b7015b-030a-5ef0-0008-7557000352c2');  -- should return 100 rows
+	select * from tt_after_clone before (statement => '01b7015b-030a-5ef0-0008-7557000352c2');	-- this statement fails --Time travel data is not available for table TT_AFTER_CLONE. The requested time is either beyond the allowed time travel period or before the object creation time.
 	
 -- Nothing is preserved
 	show tables like 'tt%clone%';
@@ -400,7 +404,7 @@ Lets try it with database and schema level objects
 	
 -- we can create a table using before or at SQL extended keyword
 		create table tt_as_select
-			as select * from tt_before_clone before(statement => '01b027a3-0000-7e18-0005-f7de0003e55a');
+			as select * from tt_before_clone before(statement => '01b7015b-030a-5ef0-0008-7557000352c2');
 			
 		select * from tt_as_select;
 		
