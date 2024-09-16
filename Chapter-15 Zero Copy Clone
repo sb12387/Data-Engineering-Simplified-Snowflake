@@ -36,7 +36,7 @@ select * from simple_order limit 10;
 -- so we can also validate the time travel feature along side clone. (we have seen it in episode 14) 
 
 	delete from simple_order where orderkey between 30 and 40; -- 8 record deleted
--- Query ID => 01b03243-0000-7eb2-0005-f7de0004323a
+-- Query ID => 01b71231-030a-7948-0008-75570003b12e
 
 -- now we will create a table called simple-order-clone using clone keyword
 create table simple_order_clone clone simple_order;
@@ -51,8 +51,8 @@ create table simple_order_clone clone simple_order;
 	select * from "TIPSDB"."INFORMATION_SCHEMA"."TABLES";
 	select * from "TIPSDB"."INFORMATION_SCHEMA"."TABLES" where table_name in ('SIMPLE_ORDER', 'SIMPLE_ORDER_CLONE') 
 	and table_schema = 'CH15';
--- rememer that the table names must be in upper case
--- the number of records and bytes, both ale same here.
+-- remember that the table names must be in upper case
+-- the number of records and bytes, both are same here.
 
 -- lets check bytes fields in table storage-metrics view
 -- to access account usage, we have to switch to account admin role
@@ -80,7 +80,7 @@ create table simple_order_clone clone simple_order;
 -- we are inserting duplicate records, but lets not worry about it for now
 
 
--- and for debugging puporse we are making some update in simple-cloned-order table
+-- and for debugging purpose we are making some update in simple-cloned-order table
 	update simple_order_clone set orderpriority = '1-URGENT' where orderkey < 100000 and orderpriority <> '1-URGENT' ; --19,986 rows updated
 	
 	
@@ -173,7 +173,7 @@ Now lets see how clone works for transient & temporary tables
 	create transient table permanent_to_trans clone simple_order; -- table is created
 	create temporary table permanent_to_temp clone simple_order; --table is created
 
-
+    show tables like 'permanent%';
 
     
 -----------------------------------
@@ -381,14 +381,14 @@ select even_seq_clone.nextval, even_seq.nextval;
 -- lets check our copy command
 copy into customer_pipe from @ch15_pipe_s3 file_format = 'csv_ff_pipe';
 
--- cearing pipe
+-- creating pipe
 	create or replace pipe customer_pipe
 	auto_ingest = true
 	as
 	Copy into customer_pipe from @ch15_pipe_s3 file_format = 'csv_ff_pipe' ;
 	
 -- lets check the pipe object
-	select system$pipe_status('tipsdb.ch15x.customer_pipe');
+	select system$pipe_status('tipsdb.ch15.customer_pipe');
 	
 -- cloning pipe (this does not work)
 	create or replace pipe customer_pipe_clone clone customer_pipe;
@@ -535,7 +535,7 @@ use schema ch15_src_db.ch15_src_sch01;
 	create or replace view vw1 (id, field1) as 
 		select * from tbl1
 		union all
-		select * from tb12;
+		select * from tbl2;
 		
 select * from vw1;
 
@@ -549,8 +549,8 @@ select * from vw1;
 	;
 	
 -- materialized view
-    create or replace MATERIALIZED VIEW mvw as 
-	select * from vw1;
+    create or replace MATERIALIZED VIEW mvw as
+	select * from tbl1;
 		
 -- stream
 	create stream stream_tbl1 on table tbl1;
