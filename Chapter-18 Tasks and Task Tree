@@ -2,7 +2,7 @@
 --CHAPTER-1 CREATE TASK
 ------------------------
 
-create schema ch18;
+create or replace schema ch18;
 
 /* =========================================
 Change the context via SQL statements
@@ -35,7 +35,7 @@ Change the context via SQL statements
 	comment= 'my demo sequence for customer dimension table';
 	
 -- check the sequence object 
-	select * customer_seq.nextval;
+	select customer_seq.nextval;
 
 -- now create task named task_01
 	create or replace task task_01
@@ -44,7 +44,8 @@ Change the context via SQL statements
 			as
 		insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag, city) 
 		values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
-	
+
+
 
 --~~~~~~~~~~~~~~	
 --Limitations
@@ -80,11 +81,16 @@ Change the context via SQL statements
 -- You can assign execute task to any role and
 -- that role can alter the task to resume or suspend
 	use role accountadmin;
-	grant execute task to role sysadmin; 
+	grant execute task on account to role sysadmin; 
 	grant execute task, execute managed task on account to role sysadmin;
--- We can alter task and change attributes associated with it.
+    
+-- We can alter task and change attributes associated with it. To alter the task it should be in suspended mode.
+    alter task task_01 suspend ;
 	alter task task_01 set warehouse = 'etl_wh';
 	alter task task_01 set schedule ='2 minute';
+    alter task task_01 resume;
+    show tasks;
+    select * from customer_dim;
 	
 -- lets clone the task and it works
 	create task task_clone clone task_01;
@@ -175,7 +181,7 @@ Change the context via SQL statements
 -- drop task task_8days_in_min
 
 -- change the value to next new number and see the result
--- Cannot set schedule> 11,520 minutes.
+-- Error - "Cannot set schedule greater than 11,520 minutes.""
 
 
 show tasks;
@@ -269,7 +275,7 @@ show tasks;
 		schedule = '1 minute'
 	as
 	insert into customer_dim (id, first_name, last_name, date_of_birth, active_flag,city) 
-	values (customer_seq.nextval, 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');
+	values (customer_seq.nextval, 'F-Name_sf_provided_wh', 'L-Name', current_date(), TRUE, 'My-City');
 	
 -- the above one failed, because to use the serverless compute
 -- you must have EXECUTE MANAGED TASK priviledges
@@ -278,10 +284,11 @@ show tasks;
 -- use role accountadmin;
 -- grant execute task to role sysadmin;
 
-
-
-desc task task_sf_provided_wh;
-show tasks;
+    alter task task_sf_provided_wh resume;
+	select * from customer_dim;
+    
+    desc task task_sf_provided_wh;
+    show tasks;
 -- when wh is null, it means that this task is managed by sf serverless compute
 
 
@@ -370,8 +377,13 @@ show tasks;
 	select * from customer_tree;    
     
     alter task parent_task_01 suspend;
+
+    use role accountadmin;
+    alter task parent_task_01 resume;
+    use role sysadmin;
     
 -- Just resume parents and all the nodes within the tree will be automatically resumed
+-- Parent task should be in suspended mode before child task resume. Error -"Unable to update graph with root task TIPSDB.CH18.PARENT_TASK_01 since that root task is not suspended.""
 	show tasks;
 	alter task child_task_21 resume;
 	alter task child_task_22 resume; 
@@ -406,7 +418,7 @@ show tasks;
 	create or replace table customer_sproc(
 		id integer autoincrement,
 		task_name varchar,
-		insert_time timeştamp default current_timestamp(),
+		insert_time timestamp default current_timestamp(),
 		first_name varchar,
 		last_name varchar,
 		date_of_birth date,
@@ -422,8 +434,8 @@ show tasks;
 		execute as caller
 	as
 	$$
-		sql_insert_command = 'insert into customer_sproc (level, first_name, last_name, date_of_birth, active_flag, city)
-								values ('TASK_WITH_SPROC', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');'
+		sql_insert_command = `insert into customer_sproc (task_name, first_name, last_name, date_of_birth, active_flag, city)
+								values ('TASK_WITH_SPROC', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');`
 		result_insert = snowflake.execute(
 		{
 			sqlText: sql_insert_command    
@@ -431,9 +443,22 @@ show tasks;
 		return result_insert;
 	$$
 	;
+    	
+        create or replace procedure insert_row_in_customer_sproc1()
+		returns boolean
+		language javascript
+		execute as caller
+	as
+	$$
+        return snowflake.execute({ sqlText: `insert into customer_sproc (task_name, first_name, last_name, date_of_birth, active_flag, city)
+								              values ('TASK_WITH_SPROC1', 'F-Name', 'L-Name', current_date(), TRUE, 'My-City');`
+                           });
+	$$
+	;
 	
 -- call stored procedure to check if it runs
 	call insert_row_in_customer_sproc();
+    call insert_row_in_customer_sproc1();
 	
 	select * from customer_sproc;
 
@@ -454,4 +479,3 @@ show tasks;
 	select * from table (information_schema.task_history())
 	where name='TASK_WITH_SPROC'
 	order by scheduled_time;
-
