@@ -103,7 +103,7 @@ use schema ch17;
 	alter stream customer_stream unset comment;
 	desc stream customer_stream;
 	
-	drop stream ;
+	drop stream stream_name; --Once drop it can't be undrop. Also unlike table, stream object has no fail safe and time travel feature
 
 	create or replace stream customer_stream_02 on table customer comment = 'my 2nd stream';
     
@@ -253,7 +253,7 @@ use schema ch17;
 	
 -- lets see how select statement fetches the result
 	select * from transient_stream order by id;
-	
+
 
 
 
@@ -404,7 +404,7 @@ commit;
 
 	select * from customer_raw;
 	select * from customer_dim;
-    select * from customer_dim_stream;
+    select * from customer_dim_stream; --Once you commit all the data will get away from the stream.
 
 -- if you rollback, the stream data will still stay with stream object.
 -- In general, stored procedure
@@ -461,7 +461,7 @@ commit;
 -- lets see the data
 	select * from customer_ext;
 
-	create or replace stream ext_tbl_stream on external table customer_ext;,
+	create or replace stream ext_tbl_stream on external table customer_ext; -- Failed with error "Stream on External Tables must have INSERT_ONLY set to true"
 
 	create or replace stream ext_tbl_stream on external table customer_ext 
 	insert_only= true;
