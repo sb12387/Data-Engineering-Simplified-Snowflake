@@ -199,6 +199,9 @@ use role sysadmin;
 
     -- list the stage
     list @my_stg;
+
+    --to get the cloud path of the stage
+    SELECT GET_STAGE_LOCATION(@my_stg);
     
     -- lets view the data first
     create or replace file format my_format type = 'csv' field_delimiter = ',';
