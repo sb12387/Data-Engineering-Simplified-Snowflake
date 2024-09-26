@@ -1,0 +1,372 @@
+------------------------
+--Chapter-1 Create Roles
+------------------------
+
+
+-- If you have not see how the basics of WebUI works,
+-- I would request to watch episode-4 which covers the tab vs role applicabilty 
+-- https://youtu.be/bCQWVNwZnbM
+-- modern webui snowsight https://youtu.be/T-1_LN_505Q
+
+
+-- lets validate my role first
+	select current_role();
+
+-- I would also request to watch my entier playlist of
+-- context function if you are now are of context functions 
+-- in snowflake
+-- https://youtu.be/VKIRKGHdg6c
+-- Playlist https://www.youtube.com/playlist?list=PLba2xJ7yxHB6Lb0dzpqRB0WQE7IPWbbSy
+
+-- change role
+	use role accountadmin;
+
+-- lets create a user
+	CREATE USER user01
+		PASSWORD = 'Test@12$4'
+		COMMENT = 'this is a trial user'
+		MUST_CHANGE_PASSWORD = FALSE;
+
+-- I can also do it using the WebUI >> Account Tab >> Create User
+-- and we will run following commands
+
+	select current_role();
+	show grants to role public;
+	create database my_test_db;
+	
+	desc user user01;
+	show grants to user user01; --it lists all roles assigned to the user
+	show grants on user user01; --who has ownership to this user
+    show users;
+
+
+
+
+
+-- let me create another user called user82 and will assign a defalt role as sysadmin
+
+-- if you look into the SQL statement, it added one additional statement
+-- and that statement granting a role to this new user but for public it was not needed
+	CREATE USER user02
+		PASSWORD= 'Test@12$4'
+		DEFAULT_ROLE = "SYSADMIN"
+		MUST_CHANGE_PASSWORD= FALSE;
+	GRANT ROLE "SYSADMIN" TO USER user02;
+
+-- adding more roles to user02
+-- and refresh the user02 screen and see the result
+	GRANT ROLE "SECURITYADMIN" TO USER user02;
+	GRANT ROLE "USERADMIN" TO USER user02;
+	
+	select current_role();
+	desc user user02;
+
+	show grants to user user02:
+
+
+
+------------------------
+--Chapter-2 DAC
+------------------------
+
+-- context fuction
+	select current_account(), current_user(), current_role();
+
+-- lets list all the users and see the owenrship
+	use role accountadmin;
+	use role sysadmin;
+	show users;
+
+-- lets create a table, schema and a table and see the owner
+	create database my_db1;
+	show databases;
+	create schema my_schema;
+	show schemas;
+	create table my_tbl (c1 varchar());
+	show tables;
+
+-- context fuction
+	select current_account(), current_user(), current_role();
+
+-- show databases
+	show databases;
+	
+-- show schemas under my_db;
+	use database my_db;
+	show schemas;
+
+-- this use can also drop this schema eventhough admin01 has created it 
+	drop schema my_schema;
+
+
+
+------------------------
+--Chapter-3 Create Roles
+------------------------
+
+-- roles should be created using security-admin
+	select current_account(), current_user(), current_role();
+
+	use role securityadmin;
+
+/*
+1. PM This role can create database and everything inside the databae + warehouse
+2. Dev Team they can do everything inside the database but can not create a new database or warehoue
+3. Analyst they can do read all the data from table and views but nothing more than that.
+4. QA they can do read all the data from table and views but nothing more than that.
+*/
+    drop role "DE_PM_ROLE";
+	create or replace role "DE_PM_ROLE" comment = 'this is project manager role for sales project';
+	grant role "DE_PM_ROLE" to role "SECURITYADMIN";
+
+--this is a standard practice that security admin gets a grant to the role its created. and we will see it later in other episode. 
+	create role "DE_DEV_TEAM" comment = 'this is developoment team';
+	grant role "DE_DEV_TEAM" to role "DE_PM_ROLE";
+	
+	
+	create role "DE_ANALYST" comment = 'this is analyst team';
+	grant role "DE_ANALYST" to role "DE_PM_ROLE";
+	
+	create role "DE_QA" comment = 'this is analyst team';
+	grant role "DE_QA" to role "DE_ANALYST";
+	
+	
+-- now lets see how this role hierarchy looks like in our snowsight
+
+
+
+	use role USERADMIN;
+
+--so we are creating 5 users
+	create user pm_user password = 'Test@12$4' comment = 'this is a pm user' must_change_password = false; 
+	create user ba_user password = 'Test@12$4' comment = 'this is a ba user' must_change_password = false; 
+	create user qa_user01 password = 'Test@12$4' comment = 'this is a qa user01' must_change_password = false; 
+	create user qa_user02 password = 'Test@12$4' comment = 'this is a qa user02' must_change_password = false; 
+	create user dev_user01 password = 'Test@12$4' comment = 'this is a dev-01 user' must_change_password = false; 
+	create user dev_user02 password = 'Test@12$4' comment = 'this is a dev-02 user' must_change_password = false; 
+	create user dev_user03 password = 'Test@12$4' comment = 'this is a dev-03 user' must_change_password = false;
+
+
+	use role securityadmin;
+	grant role "DE_PM_ROLE" to user pm_user;
+	
+	grant role "DE_ANALYST" to user ba_user;
+	
+	grant role "DE_QA" to user qa_user01;
+	grant role "DE_QA" to user qa_user02;
+	
+	grant role "DE_DEV_TEAM" to user dev_user01; 
+	grant role "DE_DEV_TEAM" to user dev_user02; 
+	grant role "DE_DEV_TEAM" to user dev_user03;
+
+
+
+	
+	use role sysadmin;
+	
+	
+------------------------Login with User DE_PM_ROLE--------------------
+-- context function
+	select current_account(), current_user(), current_role();
+	
+-- lets list all the users and see the ownership
+	use role de_pm_role;
+	
+	use role de_dev_team;
+	use role de_analyst;
+	use role de_qa;
+	
+	create database my_test_db; --Error Insufficient Privilleges
+---------------------------------------------------------------------
+
+
+
+
+-----------------------------------
+--Chapter-3 Account Level Accesses
+-----------------------------------
+
+    
+-- we have assigned roles to the users but these roles does not have any power 
+-- so we have to grant other privileges
+
+	use role sysadmin;
+	
+	select current_account(), current_user(), current_role();
+	
+	grant create warehouse on account to role "DE_PM_ROLE"; 
+	grant create database on account to role "DE_PM_ROLE";
+	
+--now login with this user pm_user
+
+
+------------------------Login with User pm_user-----------------------------
+-- context function
+	select current_account(), current_user(), current_role();
+	
+-- lets list all the users and see the ownership
+	use role de_pm_role;
+
+    create database my_test_db; -- Successfully created
+
+
+-- check the context
+	select current_account(), current_user(), current_role();
+	
+-- create two warehouses
+
+-- PM role creating the warehouse
+	create warehouse load_wh
+		with
+		warehouse_size = 'xlarge'
+		warehouse_type = 'standard'
+		auto_suspend = 300
+		auto_resume = true
+		min_cluster_count = 1
+		max_cluster_count = 1
+		scaling_policy = 'standard';
+		
+	create warehouse adhoc_wh
+		with
+		warehouse_size = 'xsmall' 
+		warehouse_type = 'standard'
+		auto_suspend = 300
+		auto_resume = true
+		min_cluster_count = 1
+		max_cluster_count = 1
+		scaling_policy = 'standard';
+		
+	show warehouses;
+	
+	create database sales_db;
+	create schema sales_schema;
+	create table order_tables (c1 varchar);
+
+-- now it is time to grant different privileges to different role	
+	grant USAGE on database sales_db to role "DE_DEV_TEAM";
+	grant all privileges on schema sales_schema to role "DE_DEV_TEAM";
+	grant all privileges on all tables in schema sales_schema to "DE_DEV_TEAM";
+
+	grant USAGE on warehouse load_wh to role "DE_DEV_TEAM"; 
+	grant USAGE on warehouse adhoc_wh to role "DE_DEV_TEAM";
+	
+	grant USAGE on database sales_db to role "DE_QA";
+	grant USAGE on schema sales_schema to role "DE_QA"; 
+	grant select on all tables in schema sales_schema to role "DE_QA";
+	grant USAGE on warehouse adhoc_wh to role "DE_QA";
+	
+	
+	grant USAGE on database sales_db to role "DE_ANALYST"; 
+	grant USAGE on schema sales_schema to role "DE_ANALYST"; 
+	grant select on all tables in schema sales_schema to role "DE_ANALYST"; 
+	grant USAGE on warehouse adhoc_wh to role "DE_ANALYST";
+
+
+	insert into order_tables (c1) values ('by role DE_PM_ROLE'); 
+	insert into order_tables (c1) values ('by role DE_DEV_TEAM'); 
+	insert into order_tables (c1) values ('by role DE_ANALYST');
+	select * from order_tables;
+---------------------------------------------------------------------------------
+
+
+
+------------------------Login with User dev_user01-----------------------------
+
+-- change the role to dev team role from public
+	use role DE_DEV_TEAM;
+	
+-- lets see what
+	show warehouses;
+	show databases;
+	show schemas;
+	
+-- check the context
+	select current_account(), current_role(), current_user();
+	
+	show tables;
+-- insert into the order table
+	insert into order_tables (c1) values ('by role DE_DEV_TEAM'); 
+	select * from order_tables;
+	
+-- create a database
+	create database my_dev_db;
+
+
+-- create wh
+	create warehouse my_dev_wh
+		with
+		warehouse_size = 'xsmall'
+		warehouse_type = 'standard'
+		auto_suspend = 300
+		auto_resume = true
+		min_cluster_count = 1;
+-------------------------------------------------------------------------------
+
+------------------------Login with User qa_user01-----------------------------
+-- change the role to dev team role from public
+	use role DE_QA;
+	
+-- lets see what
+	show warehouses;
+	show databases;
+	show schemas;
+	
+-- check the context
+	select current_account(), current_role(), current_user();
+	
+	show tables;
+-- insert into the order table
+	insert into order_tables (c1) values ('by role DE_QA');
+	select * from order_tables;
+	
+-- create a database
+	create database my_qa_db;
+
+
+-- create wh
+	create warehouse my_qa_wh
+		with
+		warehouse_size = 'xsmall'
+		warehouse_type = 'standard'
+		auto_suspend = 300
+		auto_resume = true
+		min_cluster_count = 1;
+-------------------------------------------------------------------------------
+
+------------------------Login with User sam------------------------------------
+-- lets check Sam's context
+	select current_account(), current_role(), current_user();
+	
+-- lets see sam's profile
+	desc user sam;
+	
+-- lets switch to MAKETING_PRJ_DEV_TEAM role
+	use role MAKETING_PRJ_DEV_TEAM;
+	
+-- lets see what all roles sam has
+	show grants to user sam;
+	
+-- lets see what all roles grant to MAKETING_PRJ_DEV_TEAM
+	show grants to role MAKETING_PRJ_DEV_TEAM;
+	
+	use role SALE_PRJ_QA;
+-- lets select a table from marketing schema
+	select * from marketing_db.marketing_schema.analytics;
+
+	use secondary roll all;
+	select * from "SALES_DB01"."LEAD"."LEAD_TBL";
+
+
+
+--switch to the securityadmin role
+	use role securityadmin;
+	
+-- assign sam a new role called sales project qa
+	grant role "SALE_PRJ_QA" to user sam;
+	
+--set his primary role as marketing project dev team member 
+	alter user sam set DEFAULT_ROLE='MAKETING_PRJ_DEV_TEAM';
+	
+- his secondary role as all means marketing + sales
+	alter user sam set DEFAULT_SECONDARY_ROLES = ('ALL');
+-------------------------------------------------------------------------------
